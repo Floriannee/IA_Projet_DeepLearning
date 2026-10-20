@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.0"
+__generated_with = "0.25.1"
 app = marimo.App(
     width="medium",
     app_title="TD 1 - Vision avancée et transfer learning",
@@ -377,9 +377,9 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
-    3. ...
+    1. Les 3 modèles sont d'accord pour les images de chat et café mais ils se trompent pour les images d'astronautes et fusées. Pour les astronautes ils se trompent complètement et cela n'a aucun rapport avec l'astronaute or pour la fusée ils trouvent des classes qui ont une forme similaire à une fusée.
+    2. L'astronaute a un score de confiance très faible, pour le top 1 on est seulement à 14% pour resnet18 et deit_tiny puis 12% sur efficientnet_b0. On peut déduire qu'en production, le modèle va forcément croiser des images qui ne sont pas dans la base de données et donc le réseau est forcé de choisir une classe au hasard avec un faible niveau de confiance.
+    3. Il faudrait déployer le modèle resnet18 sur une machine sans GPU car c'est celui qui globalement a le temps d'inférence le plus bas et le plus stable sur tous les exemples (environ 135 ms).
     """)
     return
 
@@ -454,12 +454,34 @@ def _(mo):
 
 
 @app.cell
+def _(tp):
+    print ([n for n, _ in tp.charger_modele("efficientnet_b0").named_children()])
+    print ([n for n, _ in tp.charger_modele("deit_tiny").named_children()])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    donc la tête s'appelle classifier pour efficientnet_b0 et head pour deit-tiny.
+    """)
+    return
+
+
+@app.cell
 def _(nn):
     def retirer_tete(modele):
         """Remplace la couche de classification par nn.Identity() et renvoie le modèle."""
         # TODO 1 : trouvez la tête de classification et remplacez-la par nn.Identity().
         # La même fonction doit marcher pour les trois modèles.
-        raise NotImplementedError("À compléter")
+        if hasattr(modele, "fc"):
+            modele.fc = nn.Identity()
+        elif hasattr(modele, "classifier"):
+            modele.classifier = nn.Identity()
+        elif hasattr(modele, "head"):
+            modele.head = nn.Identity()
+        return modele
+
     return (retirer_tete,)
 
 
@@ -576,8 +598,8 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
+    1. efficient_b0 donne les meilleurs embeddings sur la validation puisqu'elle a la meilleure accuracy validation (0.946). Non ce n'est pas l'architecture qui a le plus de paramètre, c'est même celle qui en a le moins avec 4M de paramètres. (contre 5.5M pour deit_tiny et 11,2M pour resnet18)
+    2. Il vaut mieux choisir efficientnet_b0 qui offre le meilleur des compromis pour une machine sans GPU. En effet, pour le temps de calcul, deit_tiny est le plus rapide mais présente la moins bonne accuracy des 3 (0.914). Ensuite, resnet18 est deux fois plus lent qu'efficientnet_b0 (104.8ms/image) pour une accuracy moins élevée. efficientnet_b0 est donc le meilleur choix.
     """)
     return
 
@@ -611,7 +633,19 @@ def _(np):
     def descripteurs_classiques(image):
         """image : PIL.Image -> vecteur numpy de longueur 1812 (HOG + histogrammes de couleur)."""
         # TODO 2
-        raise NotImplementedError("À compléter")
+        image = image.convert("RGB").resize((128,128))
+        image_grise = np.array(image.convert("L")) / 255
+        f_hog = hog(image_grise, orientations=9, pixels_per_cell=(16, 16), cells_per_block=(2, 2))
+        histogrammes = []
+        image_rgb= np.array(image)
+        for c in range(3):
+            h, _ = np.histogram(image_rgb [:,:,c],bins=16, range =(0,256))
+            histogrammes.append(h / h.sum())
+        vecteur = np.concatenate([f_hog]+histogrammes)
+        return vecteur
+
+
+
     return (descripteurs_classiques,)
 
 
@@ -665,7 +699,7 @@ def _(
 def _(mo, resultat_classique, resultats_fe, tp):
     tableau_comparatif = [resultat_classique] + list(resultats_fe)
     mo.vstack([mo.md(f"Hasard : {1 / 37:.1%} (37 classes)."), tp.tableau(tableau_comparatif, mo)])
-    return (tableau_comparatif,)
+    return
 
 
 @app.cell(hide_code=True)
@@ -748,17 +782,15 @@ def _(mo):
     return
 
 
-@app.cell
-def _(torch):
-    def creer_optimiseur(modele, lr_tete, lr_backbone):
-        """Renvoie un AdamW avec un learning rate pour la tête et un autre pour le backbone dégelé."""
-        # TODO 4
-        raise NotImplementedError("À compléter")
-    return (creer_optimiseur,)
+@app.function
+def creer_optimiseur(modele, lr_tete, lr_backbone):
+    """Renvoie un AdamW avec un learning rate pour la tête et un autre pour le backbone dégelé."""
+    # TODO 4
+    raise NotImplementedError("À compléter")
 
 
 @app.cell(hide_code=True)
-def _(creer_optimiseur, mo, ok_todo3, tests, tp):
+def _(mo, ok_todo3, tests, tp):
     tp.bloquer_si(not ok_todo3, mo, "Terminez le TODO 3 d'abord.")
     ok_todo4, _affichage = tp.verifier(tests.tests_optimiseur(creer_optimiseur, geler_backbone), mo)
     _affichage
@@ -847,7 +879,6 @@ def _(
     cfg_lr_backbone,
     cfg_lr_tete,
     classes,
-    creer_optimiseur,
     img_tr,
     img_va,
     mo,
@@ -974,7 +1005,17 @@ def _(bouton_test, classes, img_te, mo, modele_ft, np, tp, y_te):
 
 
 @app.cell(hide_code=True)
-def _(descripteurs_classiques, historique_ft, img_te, mo, np, pred_ft, svm_classique, tp, y_te):
+def _(
+    descripteurs_classiques,
+    historique_ft,
+    img_te,
+    mo,
+    np,
+    pred_ft,
+    svm_classique,
+    tp,
+    y_te,
+):
     _ds = tp.DatasetImages(img_te, y_te, transform=lambda x: x)
     _f_te = np.stack([descripteurs_classiques(_ds.image_brute(i)) for i in range(len(_ds))])
     _acc_classique = float(np.mean(svm_classique.predict(_f_te) == np.asarray(y_te)))
@@ -1080,36 +1121,23 @@ def _(mo):
     return
 
 
-@app.cell
-def _(torch):
-    def grad_cam(modele, couche, image, classe=None):
-        """image : tenseur (1, 3, H, W). Renvoie une carte numpy (h, w) dans [0, 1] pour `classe`
-        (par défaut, la classe prédite)."""
-        # TODO 7
-        raise NotImplementedError("À compléter")
-    return (grad_cam,)
+@app.function
+def grad_cam(modele, couche, image, classe=None):
+    """image : tenseur (1, 3, H, W). Renvoie une carte numpy (h, w) dans [0, 1] pour `classe`
+    (par défaut, la classe prédite)."""
+    # TODO 7
+    raise NotImplementedError("À compléter")
 
 
 @app.cell(hide_code=True)
-def _(grad_cam, mo, tests, tp):
+def _(mo, tests, tp):
     ok_todo7, _affichage = tp.verifier(tests.tests_gradcam(grad_cam), mo)
     _affichage
     return (ok_todo7,)
 
 
 @app.cell
-def _(
-    classes,
-    ds_test_ft,
-    grad_cam,
-    mo,
-    modele_ft,
-    np,
-    ok_todo7,
-    pred_ft,
-    tp,
-    y_te,
-):
+def _(classes, ds_test_ft, mo, modele_ft, np, ok_todo7, pred_ft, tp, y_te):
     tp.bloquer_si(not ok_todo7, mo, "Terminez le TODO 7 pour appliquer Grad-CAM.")
     for _p in modele_ft.parameters():
         _p.requires_grad_(True)  # nécessaire si une partie du réseau était gelée
@@ -1165,17 +1193,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(
-    Image,
-    classes,
-    grad_cam,
-    mo,
-    modele_ft,
-    ok_todo7,
-    plt,
-    televersement,
-    tp,
-):
+def _(Image, classes, mo, modele_ft, ok_todo7, plt, televersement, tp):
     import io as _io
 
     mo.stop(not televersement.value, mo.md("En attente d'une image."))
