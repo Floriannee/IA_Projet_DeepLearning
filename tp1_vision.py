@@ -720,9 +720,9 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
-    3. ...
+    1. Le modèle baseline a une accuracy validation de 15,4% contre 2.7% au hasard (37 classes), donc elle apprends quelque chose mais très peu. On voit que les modèles deep learning ont tous une accuracy bien meilleur environ 75 à 80 % en plus d'accuracy. Cet écart justifie largement le coût de calcul, deit_tiny et efficientnet_b0 ont besion de 11 à 22 ms de plus pour un résultat bien meilleur. resnet18  est le moins intéressant niveau cout ici puisqu'il prends 4 fois plus de temps que la baseline.
+    2. Non, parce que le modèle baseline avec HOG permet de reconnaître les contours globales et les couleurs donne la répartition des teines mais sans position. Le modèle sera incapable de distinguer des détails fins (forme du museau, oreilles...) et confondra donc deux races proches qui ont des caractéristiques similaires. Hyothèse : les erreurs seront concentrées entre les races visuellement proches (même taille, couleur de pelage), ce qui devrait se voir dans la matrice de confusion par des valeurs hors diagonale élevées pour ces paires.
+    3. Un problème classique où la baseline serait suffisant pourrait être un problème où toutes les classes sont clairement distinctes, par exemple distinguer des paysages aux couleurs dominantes différentes (ciel, mer ou forêt).
     """)
     return
 
@@ -756,7 +756,17 @@ def _(mo):
 def geler_backbone(modele, n_etages_degeles):
     """Gèle tout sauf les n derniers étages de modele.features et modele.classifier. Renvoie le modèle."""
     # TODO 3
-    raise NotImplementedError("À compléter")
+    
+    for p in modele.parameters():
+        p.requires_grad = False
+    if n_etages_degeles > 0:
+        for etage in modele.features[-n_etages_degeles:]:
+            for p in etage.parameters():
+                p.requires_grad = True
+    for p in modele.classifier.parameters():
+        p.requires_grad = True
+    return modele
+    #raise NotImplementedError("À compléter")
 
 
 @app.cell(hide_code=True)
