@@ -792,15 +792,28 @@ def _(mo):
     return
 
 
-@app.function
-def creer_optimiseur(modele, lr_tete, lr_backbone):
-    """Renvoie un AdamW avec un learning rate pour la tête et un autre pour le backbone dégelé."""
-    # TODO 4
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(torch):
+    def creer_optimiseur(modele, lr_tete, lr_backbone):
+        """Renvoie un AdamW avec un learning rate pour la tête et un autre pour le backbone dégelé."""
+        # TODO 4
+        params_tete= list(modele.classifier.parameters())
+        ids_tete = {id(p) for p in params_tete}
+        params_backbone = [p for p in modele.parameters() if p.requires_grad and id(p) not in ids_tete]
+
+        groupes = [{"params": params_tete, "lr":lr_tete}]
+        if params_backbone:
+            groupes.append({"params": params_backbone, "lr":lr_backbone})
+    
+        optimiseur = torch.optim.AdamW(groupes, weight_decay=1e-4)
+
+        return optimiseur
+
+    return (creer_optimiseur,)
 
 
 @app.cell(hide_code=True)
-def _(mo, ok_todo3, tests, tp):
+def _(creer_optimiseur, mo, ok_todo3, tests, tp):
     tp.bloquer_si(not ok_todo3, mo, "Terminez le TODO 3 d'abord.")
     ok_todo4, _affichage = tp.verifier(tests.tests_optimiseur(creer_optimiseur, geler_backbone), mo)
     _affichage
@@ -825,7 +838,20 @@ def _(mo):
 def entrainer_une_epoque(modele, chargeur, optimiseur, critere, appareil):
     """Entraîne le modèle sur un passage complet du chargeur. Renvoie la perte moyenne (float)."""
     # TODO 5
-    raise NotImplementedError("À compléter")
+    modele.train()
+    perte_totale = 0
+    n_exemples = 0
+    
+    for x,y in chargeur:
+        optimiseur.zero_grad()
+        perte = critere(modele(x),y)
+        
+        perte.backward()
+        optimiseur.step()
+        perte_totale+=perte.item() * x.size(0)
+        n_exemples+= x.size(0)
+
+    return perte_totale/n_exemples
 
 
 @app.cell(hide_code=True)
@@ -889,6 +915,7 @@ def _(
     cfg_lr_backbone,
     cfg_lr_tete,
     classes,
+    creer_optimiseur,
     img_tr,
     img_va,
     mo,
