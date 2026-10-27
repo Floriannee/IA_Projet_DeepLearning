@@ -804,7 +804,7 @@ def _(torch):
         groupes = [{"params": params_tete, "lr":lr_tete}]
         if params_backbone:
             groupes.append({"params": params_backbone, "lr":lr_backbone})
-    
+
         optimiseur = torch.optim.AdamW(groupes, weight_decay=1e-4)
 
         return optimiseur
@@ -991,12 +991,14 @@ def _(mo):
 
     | Étages dégelés | Époques | LR tête | LR backbone | Accuracy de validation | Durée |
     |---|---|---|---|---|---|
-    | 0 | | | | | |
-    | | | | | | |
+    | 0 | 3| 3e-3| 3e-4 (inutilisé) | 74,3%| 221s |
+    | 2| 3| 3e-3| 3e-4 | 78.1% | 229s |
+    | 4| 3| 3e-3| 3e-4 | 81.6% | 373s |
+
 
     Conclusion (à résolution égale, dégeler des étages vaut-il son coût par rapport à la tête seule ? Les écarts
     dépassent-ils l'incertitude de mesure ? Comment le résultat se situe-t-il par rapport au meilleur score de
-    l'étape 4 ? Quelle configuration retenez-vous ?) : ...
+    l'étape 4 ? Quelle configuration retenez-vous ?) : A résolution égale, dégeler 2 étages donne 4 points de plus sur l'accuracy pour une durée quasi similaire donc dans ce cas là dégeler vaut son coût.  Mais puisque c'est du même ordre que de l'incertitude de mesure (+-3 à 5 points) ça pourrait être seulement du bruit. L'accuracy de validation obtenue est moins bien qu'à celles de l'étape 4. En essayant avec 4 étages dégelés, on contaste que l'accuracy est de 81.6% soit 7.3 points cette fois-ci le temps est beaucoup plus long mais je pense que ce temps est encore raisonnable pour un gain réel. Je garde donc le modèle avec 4 étages degélés.
     """)
     return
 
@@ -1083,7 +1085,13 @@ def _(mo):
 def paires_les_plus_confondues(matrice, noms, k=5):
     """matrice[i, j] = nombre d'images de classe i prédites j. Renvoie [(nom_i, nom_j, nombre), ...]."""
     # TODO 6
-    raise NotImplementedError("À compléter")
+    paires = []
+    for i in range(len(noms)):
+        for j in range (len(noms)):
+            if i!=j and matrice [i,j]!=0:
+                paires.append((noms[i],noms[j],matrice[i,j]))
+    paires.sort(key=lambda x: x[2],reverse=True)
+    return paires[:k]
 
 
 @app.cell(hide_code=True)
@@ -1118,7 +1126,7 @@ def _(mo):
     résolution, modèle) proposeriez-vous pour les réduire ? Elles seraient à évaluer sur la validation, puis sur
     un nouveau jeu de test.
 
-    ...
+    Ces confusions sont compréhensibles pour un humain car ces deux races se ressemblent fortement (Ragdoll et Birman). Ils ont des caractéristiques physiques très similaires, notamment de long poils clair, des yeux bleus... Il faudrait peut-être entrainer avec plus que 30 images pour chaque race, on pourrait sinon essayer de recadrer les photos plus zoomé sur la tête ou d'autres caractéristiques précis. Pouvoir dégeler plus d'étages du backbone permettrait surement d'avoir une meilleure accuracy aussi.
     """)
     return
 
