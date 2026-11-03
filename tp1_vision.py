@@ -720,7 +720,7 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. Le modèle baseline a une accuracy validation de 15,4% contre 2.7% au hasard (37 classes), donc elle apprends quelque chose mais très peu. On voit que les modèles deep learning ont tous une accuracy bien meilleur environ 75 à 80 % en plus d'accuracy. Cet écart justifie largement le coût de calcul, deit_tiny et efficientnet_b0 ont besion de 11 à 22 ms de plus pour un résultat bien meilleur. resnet18  est le moins intéressant niveau cout ici puisqu'il prends 4 fois plus de temps que la baseline.
+    1. Le modèle baseline a une accuracy validation de 15,4% contre 2.7% au hasard (37 classes), donc elle apprends quelque chose mais très peu. On voit que les modèles deep learning ont tous une accuracy bien meilleur environ 75 à 80 % en plus d'accuracy. Cet écart justifie largement le coût de calcul, deit_tiny et efficientnet_b0 ont besoin de 11 à 22 ms de plus pour un résultat bien meilleur. resnet18  est le moins intéressant niveau cout ici puisqu'il prends 4 fois plus de temps que la baseline.
     2. Non, parce que le modèle baseline avec HOG permet de reconnaître les contours globales et les couleurs donne la répartition des teines mais sans position. Le modèle sera incapable de distinguer des détails fins (forme du museau, oreilles...) et confondra donc deux races proches qui ont des caractéristiques similaires. Hyothèse : les erreurs seront concentrées entre les races visuellement proches (même taille, couleur de pelage), ce qui devrait se voir dans la matrice de confusion par des valeurs hors diagonale élevées pour ces paires.
     3. Un problème classique où la baseline serait suffisant pourrait être un problème où toutes les classes sont clairement distinctes, par exemple distinguer des paysages aux couleurs dominantes différentes (ciel, mer ou forêt).
     """)
@@ -1166,23 +1166,61 @@ def _(mo):
     return
 
 
-@app.function
-def grad_cam(modele, couche, image, classe=None):
-    """image : tenseur (1, 3, H, W). Renvoie une carte numpy (h, w) dans [0, 1] pour `classe`
-    (par défaut, la classe prédite)."""
-    # TODO 7
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(torch):
+    def grad_cam(modele, couche, image, classe=None):
+        """image : tenseur (1, 3, H, W). Renvoie une carte numpy (h, w) dans [0, 1] pour `classe`
+        (par défaut, la classe prédite)."""
+        # TODO 7
+
+        activations = {}
+        gradients = {}
+        def garder(module, entree,sortie):
+            activations["a"] = sortie 
+            def garder_grad(grad):
+                gradients["g"]=grad
+            sortie.register_hook(garder_grad)
+
+        crochet = couche.register_forward_hook(garder)
+
+        modele.eval()
+        sortie = modele(image)
+        if classe is None:
+            classe = sortie.argmax(dim=1).item()
+        modele.zero_grad()
+        sortie[0,classe].backward()
+        crochet.remove()
+        A= activations["a"]
+        G= gradients["g"]
+        poids = G.mean(dim=(2,3),keepdim=True)
+        carte = torch.relu((poids * A).sum(dim=1))[0]
+        carte = (carte - carte.min()) / (carte.max() - carte.min() + 1e-8)
+        return carte.detach().cpu().numpy()
+
+
+    return (grad_cam,)
 
 
 @app.cell(hide_code=True)
-def _(mo, tests, tp):
+def _(grad_cam, mo, tests, tp):
     ok_todo7, _affichage = tp.verifier(tests.tests_gradcam(grad_cam), mo)
     _affichage
     return (ok_todo7,)
 
 
 @app.cell
-def _(classes, ds_test_ft, mo, modele_ft, np, ok_todo7, pred_ft, tp, y_te):
+def _(
+    classes,
+    ds_test_ft,
+    grad_cam,
+    mo,
+    modele_ft,
+    np,
+    ok_todo7,
+    pred_ft,
+    tp,
+    y_te,
+):
     tp.bloquer_si(not ok_todo7, mo, "Terminez le TODO 7 pour appliquer Grad-CAM.")
     for _p in modele_ft.parameters():
         _p.requires_grad_(True)  # nécessaire si une partie du réseau était gelée
@@ -1194,7 +1232,7 @@ def _(classes, ds_test_ft, mo, modele_ft, np, ok_todo7, pred_ft, tp, y_te):
     _imgs, _titres = [], []
     for _i in list(_justes) + list(_fausses):
         _x, _ = ds_test_ft[_i]
-        _carte = grad_cam(modele_ft, modele_ft.features[-1], _x[None].to(_dev))
+        _carte = grad_cam(modele_ft, modele_ft.features[-1], _x[None].to(_dev),classe=_y[_i])
         _imgs.append(tp.superposer(tp.denormaliser(_x), _carte))
         _etat = "juste" if _y[_i] == _pr[_i] else "erreur"
         _titres.append(f"{_etat}\nréel {classes[_y[_i]]}\nprédit {classes[_pr[_i]]}")
@@ -1212,7 +1250,7 @@ def _(mo):
 
     **Votre réponse :** le modèle regarde-t-il l'animal ou autre chose (fond, coussin, main) ?
     Les erreurs s'expliquent-elles par la zone regardée ?
-
+    Le modèle essaye de focaliser sur l'naimla mais parfois ils se trompent et regardent la mauvaise zone ce qui explique les erreurs. Par exemple, la 2e photo et la 4e photo de la deuxième ligne, l'attention est surtout sur l'arrière plan en fond plutôt que le chat.
     ...
     """)
     return
@@ -1238,7 +1276,17 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(Image, classes, mo, modele_ft, ok_todo7, plt, televersement, tp):
+def _(
+    Image,
+    classes,
+    grad_cam,
+    mo,
+    modele_ft,
+    ok_todo7,
+    plt,
+    televersement,
+    tp,
+):
     import io as _io
 
     mo.stop(not televersement.value, mo.md("En attente d'une image."))
@@ -1267,6 +1315,7 @@ def _(mo):
     **Votre réponse :** sur une image qui n'est ni un chat ni un chien, que renvoie le modèle ? Ses probabilités,
     qui somment toujours à 100 % sur les 37 races, permettent-elles de le détecter ? En service, qu'est-ce qui
     différera des images de test (photos d'utilisateurs, appareils, cadrage) ?
+    Le modèle renvoie des race de chien/chat avec de très faibles probabilités (<10%) puisqu'il n'y a pas de classe "Autre". Elle distribue la somme des 100% probabilités sur les 37 races connues donc il n'est pas possible de détecter un autre animal. En général, les photos des utilisateurs peuvent être floues et avec la présence d'élément pertubateur.
 
     ...
     """)
@@ -1289,13 +1338,13 @@ def _(mo):
     | Rubrique | Votre réponse |
     |---|---|
     | Problème métier | Reconnaître la race d'un animal à partir d'une photo |
-    | Baseline classique et son score (test) | ... |
-    | Modèle retenu et pourquoi | ... |
-    | Métrique principale et score obtenu (test, avec son intervalle à 95 %) | ... |
-    | Coût (temps d'entraînement, temps d'inférence, matériel) | ... |
-    | Principaux cas d'échec | ... |
-    | Le deep learning est-il justifié ici ? | ... |
-    | Déployable en l'état ? Sinon, que manque-t-il ? | ... |
+    | Baseline classique et son score (test) | SVM linéaire : accuracy de validation : 15.4 %|
+    | Modèle retenu et pourquoi | EfficientNet_B0 avec fine-tuning (4 derniers étages degelés) car c'est un bon compromis niveau coût par rapport à la baseline de départ en permettant de mieux détecter les caractéristiques spécifiques à certaines races d'animales. |
+    | Métrique principale et score obtenu (test, avec son intervalle à 95 %) | Accuracy test = 80.2 % (0.802), soit IC à 95 % : [76.9 %, 83.5 %] (± 3.3 points sur N=555) |
+    | Coût (temps d'entraînement, temps d'inférence, matériel) | Entraînement : 373 s (~6 min 13 s pour 3 époques, contre 221 s pour la tête seule). Inférence : ~15 ms par image sur CPU. Empreinte légère adaptée au déploiement. |
+    | Principaux cas d'échec | Confusions entre races très proches (Birman/Ragdoll, British Shorthair/Russian Blue), images sombres, ou focalisation sur des artefacts de fond |
+    | Le deep learning est-il justifié ici ? | Oui : gain massif de +70 points d'accuracy test par rapport à la baseline classique (80.2 % vs 10.1 %), les descripteurs manuels HOG+couleur échouant sur la classification fine. |
+    | Déployable en l'état ? Sinon, que manque-t-il ? | Non, il manque le rejet des images d'autres animaux, la gestion de plusieurs animaux ou cadrages imparfaits.
     """)
     return
 
