@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.0"
+__generated_with = "0.25.1"
 app = marimo.App(
     width="medium",
     app_title="TD 3 - Séries temporelles",
@@ -237,8 +237,8 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
+    1. On observe une certaine régularité pendant une journée : creux qui se forme vers la fin de journée jusqu'au matin où il fait frais (de 20h à 10h) que l'huile a -1°C par rapport à la moyenne alors qu'en journée on a un pic de 10h à 20h avec des températures plus élevés (+1°C par rapport à la moyenne). Par contre pour la saison on voit que l'huile est globalement plus chaude l'été (pic en juillet-aôut) et plus froide l'hiver (creux vers décembre/janvier) mais les valeurs sont différentes entre les deux pics d'étés 2016 et 2017 donc il n'y a pas une régularité annuelle. La tendance de long terme est la baisse de température globale (de 45 °C en juillet 2016 à 27°C vers juillet 2017)
+    2. On passe sur des températures d'huile de 30 °C et 45°C à des températures autour de 10° sur le premier schéma, donc si le modèle s'entraine sur le début et test sur la fin, le modèle aura du mal car il a peu rencontré ses valeurs à l'entrainement, on a une dérive.
     """)
     return
 
@@ -263,7 +263,16 @@ def _(mo):
 def decouper_et_normaliser(valeurs, n_train, n_val, n_test):
     """Découpage chronologique puis normalisation avec les statistiques de l'entraînement."""
     # TODO 1
-    raise NotImplementedError("À compléter")
+    train=valeurs[:n_train]
+    val=valeurs[n_train:n_train+n_val]
+    test=valeurs[n_train+n_val:n_train+n_val+n_test]
+    moyenne= train.mean(axis=0)
+    ecart_type=train.std(axis=0)
+
+    train = (train - moyenne)/ecart_type
+    val = (val - moyenne)/ecart_type
+    test = (test - moyenne)/ecart_type
+    return train,val,test,moyenne,ecart_type
 
 
 @app.cell(hide_code=True)
@@ -295,7 +304,14 @@ def _(np):
     def creer_fenetres(serie, taille_entree, horizon):
         """Série 1D -> X (N, taille_entree), Y (N, horizon)."""
         # TODO 2
-        raise NotImplementedError("À compléter")
+        n = len(serie) - taille_entree - horizon + 1
+        X=[]
+        Y=[]
+        for i in range (n): 
+            X.append(serie[i :i+taille_entree])
+            Y.append(serie[i+taille_entree:i+taille_entree+horizon])
+        return np.array(X),np.array(Y)
+
     return (creer_fenetres,)
 
 
@@ -357,12 +373,15 @@ def _(np):
     def prevision_naive(X, horizon):
         """Répète la dernière valeur observée."""
         # TODO 3a
-        raise NotImplementedError("À compléter")
+        naive= np.repeat(X[:,-1:],horizon,axis=1)
+        return naive
 
     def prevision_saisonniere(X, horizon, periode=24):
         """Recopie ce qui s'est passé une période plus tôt (horizon <= periode)."""
         # TODO 3b
+        return X[:,-periode:][:,:horizon]
         raise NotImplementedError("À compléter")
+
     return prevision_naive, prevision_saisonniere
 
 
@@ -435,7 +454,7 @@ def _(mo):
 @app.cell
 def _(mo):
     mo.md(r"""
-    **Votre réponse :** ...
+    **Votre réponse :** La prévision saisonnière ne fait pas mieux que la naïve puisqu'elle a un MAE sur le jeu de test plus élevé. Je m'attendais à l'inverse plutôt puisqu'il semblait avoir une régularité journalière (avec une amplitude moyenne de 2°C). Cela pourrait s'expliquer avec la météo irrégulière si c'est une journée de pluie ou autre chose ça peut fausser grandement donc la naïve reste quand même mieux. Ici le meilleur score est obtenue avec la régréssion linéaire.
     """)
     return
 
@@ -488,7 +507,7 @@ def _(mo):
 
 
 @app.cell
-def _(nn, torch):
+def _(nn):
     class ConvCausale(nn.Module):
         def __init__(self, canaux_entree, canaux_sortie, noyau, dilatation):
             super().__init__()
@@ -499,6 +518,7 @@ def _(nn, torch):
             """Convolution qui conserve la longueur et ne regarde jamais le futur."""
             # TODO 4
             raise NotImplementedError("À compléter")
+
     return (ConvCausale,)
 
 
@@ -621,6 +641,7 @@ def _(nn):
             """Le modèle interne prédit des écarts par rapport à la dernière valeur observée."""
             # TODO 6
             raise NotImplementedError("À compléter")
+
     return (PrevisionNormalisee,)
 
 
@@ -898,17 +919,15 @@ def _(mo):
     return
 
 
-@app.cell
-def _(torch):
-    def erreur_reconstruction(modele, X):
-        """Une erreur quadratique moyenne par fenêtre : tableau numpy de forme (N,)."""
-        # TODO 7
-        raise NotImplementedError("À compléter")
-    return (erreur_reconstruction,)
+@app.function
+def erreur_reconstruction(modele, X):
+    """Une erreur quadratique moyenne par fenêtre : tableau numpy de forme (N,)."""
+    # TODO 7
+    raise NotImplementedError("À compléter")
 
 
 @app.cell(hide_code=True)
-def _(erreur_reconstruction, mo, tests, tp):
+def _(mo, tests, tp):
     ok_todo7, _affichage = tp.verifier(tests.tests_erreur(erreur_reconstruction), mo)
     _affichage
     return (ok_todo7,)
@@ -930,17 +949,15 @@ def _(mo):
     return
 
 
-@app.cell
-def _(np):
-    def precision_rappel(scores, etiquettes, seuil):
-        """Renvoie (precision, rappel) pour les alertes scores > seuil."""
-        # TODO 8
-        raise NotImplementedError("À compléter")
-    return (precision_rappel,)
+@app.function
+def precision_rappel(scores, etiquettes, seuil):
+    """Renvoie (precision, rappel) pour les alertes scores > seuil."""
+    # TODO 8
+    raise NotImplementedError("À compléter")
 
 
 @app.cell(hide_code=True)
-def _(mo, precision_rappel, tests, tp):
+def _(mo, tests, tp):
     ok_todo8, _affichage = tp.verifier(tests.tests_precision_rappel(precision_rappel), mo)
     _affichage
     return (ok_todo8,)
@@ -964,13 +981,11 @@ def _(
     A_tr,
     A_va,
     autoencodeur,
-    erreur_reconstruction,
     mo,
     np,
     ok_todo7,
     ok_todo8,
     plt,
-    precision_rappel,
     tp,
     y_anomalie,
 ):
@@ -1027,7 +1042,6 @@ def _(
     np,
     ok_todo8,
     plt,
-    precision_rappel,
     scores_anomalie,
     scores_validation,
     seuil_centile,
@@ -1202,15 +1216,7 @@ def _(mo):
 
 
 @app.cell
-def _(
-    AutoencodeurConv,
-    bouton_skab,
-    erreur_reconstruction,
-    mo,
-    np,
-    ok_todo7,
-    tp,
-):
+def _(AutoencodeurConv, bouton_skab, mo, np, ok_todo7, tp):
     tp.bloquer_si(not ok_todo7, mo, "Terminez le TODO 7 d'abord.")
     mo.stop(not tp.lance(bouton_skab), mo.md("Cliquez pour lancer (téléchargement de 4 Mo, puis environ 1 minute)."))
     skab = tp.charger_skab(progression=lambda it: mo.status.progress_bar(it, title="Téléchargement de SKAB"))
