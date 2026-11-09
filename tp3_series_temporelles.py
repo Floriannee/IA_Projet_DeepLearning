@@ -507,7 +507,7 @@ def _(mo):
 
 
 @app.cell
-def _(nn):
+def _(nn, torch):
     class ConvCausale(nn.Module):
         def __init__(self, canaux_entree, canaux_sortie, noyau, dilatation):
             super().__init__()
@@ -517,7 +517,8 @@ def _(nn):
         def forward(self, x):  # x : (lot, canaux, temps)
             """Convolution qui conserve la longueur et ne regarde jamais le futur."""
             # TODO 4
-            raise NotImplementedError("À compléter")
+            return(self.conv(torch.nn.functional.pad(x,(self.marge,0))))
+
 
     return (ConvCausale,)
 
@@ -579,7 +580,7 @@ def _(mo):
 def decouper_en_patches(x, taille, pas):
     """(lot, longueur) -> (lot, n_patches, taille)."""
     # TODO 5
-    raise NotImplementedError("À compléter")
+    return x.unfold(1, taille, pas)
 
 
 @app.cell(hide_code=True)
@@ -640,6 +641,9 @@ def _(nn):
         def forward(self, x):  # x : (lot, longueur)
             """Le modèle interne prédit des écarts par rapport à la dernière valeur observée."""
             # TODO 6
+            dernier = x[:,-1:]
+            return self.modele(x-dernier) + dernier
+        
             raise NotImplementedError("À compléter")
 
     return (PrevisionNormalisee,)
@@ -790,9 +794,9 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
-    3. ...
+    1. Non sans normalisation, aucun des réseaux ne battent la précision naïve. Avec normalisation, ils la battent tous. Le prétraitement est très important et l'emporte sur l'architecture puisqu'il permet d'améliorer les 3 réseaux.
+    2.  Le meilleur modèle est la régression linéaire avec la MAE la plus basse : 1,146  °C, elle a 2328 paramètres pour un temps d'entrainement de 0.03s. Il est bien plus performant ici pour un cout bien plus faible que les autres réseaux. En comparaison le LSTM a 18 712 paramètres et prends environ 50 secondes à s'entrainer.
+    3. Non. Sans normalisation PatchTST est le moins bon et avec normalisation, TCN est légèrement meilleur (1.17 °C contre 1.19°C) avec moins de paramètres. Le transformer pourrait prendre l'avantage pour un jeu de données massifs sans surapprendre. De plus, si l'horizon était plus élevé alors LSTM perdrait en efficacité avec la dilution de l'information sur les longues séquences et TCN aurait besoin de dilatation plus grande. Dans ce cas, l'attention globale entre patches permet de relier le passé au futur sans dégradation.
     """)
     return
 
@@ -919,15 +923,22 @@ def _(mo):
     return
 
 
-@app.function
-def erreur_reconstruction(modele, X):
-    """Une erreur quadratique moyenne par fenêtre : tableau numpy de forme (N,)."""
-    # TODO 7
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(torch):
+    def erreur_reconstruction(modele, X):
+        """Une erreur quadratique moyenne par fenêtre : tableau numpy de forme (N,)."""
+        # TODO 7
+        x_tensor = torch.as_tensor(X)
+        with torch.no_grad():
+            reconstruction = modele(x_tensor)
+            score = ((reconstruction - x_tensor)**2).mean(dim=(1,2))
+        return score.numpy()
+
+    return (erreur_reconstruction,)
 
 
 @app.cell(hide_code=True)
-def _(mo, tests, tp):
+def _(erreur_reconstruction, mo, tests, tp):
     ok_todo7, _affichage = tp.verifier(tests.tests_erreur(erreur_reconstruction), mo)
     _affichage
     return (ok_todo7,)
@@ -953,7 +964,15 @@ def _(mo):
 def precision_rappel(scores, etiquettes, seuil):
     """Renvoie (precision, rappel) pour les alertes scores > seuil."""
     # TODO 8
-    raise NotImplementedError("À compléter")
+    alertes = scores > seuil
+    vrais_positifs = ((alertes) & (etiquettes == 1)).sum()
+    total_alertes= alertes.sum()
+    total_anomalies=(etiquettes==1).sum()
+
+    precision = vrais_positifs/total_alertes if total_alertes !=0 else 0
+    rappel = vrais_positifs/ total_anomalies if total_anomalies !=0 else 0
+
+    return precision,rappel
 
 
 @app.cell(hide_code=True)
@@ -981,6 +1000,7 @@ def _(
     A_tr,
     A_va,
     autoencodeur,
+    erreur_reconstruction,
     mo,
     np,
     ok_todo7,
@@ -1134,6 +1154,9 @@ def _(mo):
     3. Quels types d'anomalies injectées sont les plus difficiles à détecter, et pourquoi ?
 
     ...
+    1. Si une vrai panne coute 50 fois plus cher qu'un déplacement inutile, il faut avoir un seuil bas pour éviter à tout pris des pannes manquées (faux négatifs) quitte à envoyer du personnel pour de fausses alertes. (autour du centile 40). Par contre si l'équipe ne peut traiter que 2 alertes par semaine il faut augmenter le seuil et laisser seulement les plus suspectes en fixant par exemple au 85e centile.
+    2. Non on obtient pas les meme résultat, il semblerait qu'il y'a plus d'anomalie en test, on pourrait réentrainer le modèle en fonction de la saison et intégrer un retour humain lorsqu'on rencontre les faux positifs et les vraies anomalies pour ajuster la fonction du coût.
+    3. La dérive lente est difficile à détecter car elle est très progressive et on pourrait penser que c'est une variation normale au début. Les capteurs figés aussi, s'il maintient une valeur constante on aura du mal à savoir qu'il y'a une erreur car la variance du signal sera nulle et l'erreur de reconstruction quasi nulle alors que c'est une vraie panne. L'autoencodeur reconstruit sans difficulté une ligne plate.
     """)
     return
 
@@ -1151,15 +1174,15 @@ def _(mo):
     mo.md(r"""
     | Rubrique | Prévision de la température | Détection d'anomalies |
     |---|---|---|
-    | Problème métier | Anticiper une surchauffe du transformateur | Alerter l'opérateur sur un comportement anormal |
-    | Baseline classique et son score | ... | ... |
-    | Modèle retenu et pourquoi | ... | ... |
-    | Métrique principale et score obtenu | ... | ... |
-    | Seuil ou réglage retenu, justification métier | ... | ... |
-    | Coût (entraînement, inférence, matériel) | ... | ... |
-    | Principaux cas d'échec | ... | ... |
-    | Le deep learning est-il justifié ici ? | ... | ... |
-    | Déployable en l'état ? Sinon, que manque-t-il ? | ... | ... |
+    | Problème métier | Prédire si le transformateur chauffe trop pour adapter la charge | Détecter les pannes ou comportements bizarres pour prévenir l'opérateur |
+    | Baseline classique | Naive (dernière valeur) : MAE = 1.269 °C (et saisonnière 24h : 1.541 °C) | ACP : AP = 0.445 (Isolation Forest : AP = 0.307) |
+    | Modèle retenu | Régression Ridge : le plus efficace (MAE = 1.146 °C), seulement 2 328 paramètres et tourne en 0.03s | Autoencodeur 1D : meilleur résultat (AP = 0.557, F1 = 0.612), capture bien les liens entre les 7 capteurs |
+    | Métrique principale | MAE test : 1.146 °C pour Ridge (1.175 °C pour TCN normalisé) | Précision moyenne (AP) : 0.557 (meilleur F1 = 0.612) |
+    | Réglage / Seuil retenu | Pas besoin pour la régression mais pour les réseaux : normalisation par fenêtre (centré sur la dernière valeur) pour virer l'effet été/hiver | Centile 50 sur la validation (ou centile ~40 si une panne coûte 50x une fausse alerte) |
+    | Coût calcul | Presque zéro pour Ridge (0.03s sur CPU). Les réseaux profonds prennent 50s à 2min | Non rapide |
+    | Cas d'échec | Gros changements brutaux imprévus. Sans normalisation, les réseaux dérivent complètement | Dérives lentes (le réseau s'habitue) et capteurs bloqués (variance nulle donc reconstruction trop facile) |
+    | Deep Learning utile ? | Non, un modèle Ridge basique fait mieux que les réseaux de neurones et coûte bien moins cher | Oui, l'autoencodeur fait nettement mieux que l'ACP et l'Isolation Forest sur plusieurs variables |
+    | Prêt pour la prod ? | Non, il manque la météo extérieure et des tests sur une année entière | Non, la répartition des scores change entre validation et test, il faudrait réentrainer en fonction de la saison et ajouter des retours humains |
     """)
     return
 
@@ -1181,6 +1204,10 @@ def _(mo):
     **Votre réponse :** dans quels cas le deep learning a-t-il nettement gagné, dans quels cas la méthode
     classique a-t-elle fait jeu égal ou mieux ? Proposez une règle pratique pour décider, au début d'un
     projet, s'il faut investir dans un réseau de neurones.
+
+    Le deep learning ne gagne pas toujours, il faut tester et voir avec les valeurs lesquelles semblent les plus pertinentes.
+    On peut d'abord construire une baseline simple en premier pour voir s'il est rentable de faire du deep learning. On utilise alors le deep learning si le gain métrique sur la validation en vaut la peine par rapport au coût matériel (temps d'entrainement, nombre de pramètres) par rapport à la baseline.
+    En général si c'est des relations simples linéaires (prévision de température quasi linéaire après normalisation) on peut se pencher vers les méthodes classiques et si le jeu de donnés est plus compliqué alors on peut s'intéresser au deep learning. Dans le cas de la détection d'anomalies, on peut également utiliser les autoencodeurs largement meilleur que les méthodes classiques avec une AP de 0,557 (F1 de 0,612), contre 0,445 pour l'ACP et 0,307 pour l'Isolation Forest.
 
     ...
     """)
@@ -1216,7 +1243,15 @@ def _(mo):
 
 
 @app.cell
-def _(AutoencodeurConv, bouton_skab, mo, np, ok_todo7, tp):
+def _(
+    AutoencodeurConv,
+    bouton_skab,
+    erreur_reconstruction,
+    mo,
+    np,
+    ok_todo7,
+    tp,
+):
     tp.bloquer_si(not ok_todo7, mo, "Terminez le TODO 7 d'abord.")
     mo.stop(not tp.lance(bouton_skab), mo.md("Cliquez pour lancer (téléchargement de 4 Mo, puis environ 1 minute)."))
     skab = tp.charger_skab(progression=lambda it: mo.status.progress_bar(it, title="Téléchargement de SKAB"))
