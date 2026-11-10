@@ -1024,6 +1024,21 @@ def _(mo):
     return (bouton_test,)
 
 
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
+@app.cell
+def _():
+    return
+
+
 @app.cell(hide_code=True)
 def _(
     bouton_test,
@@ -1098,9 +1113,9 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
-    3. ...
+    1. On retient un seuil assez bas par exemple 0.10 parce qu'il vaut mieux avoir des fausses alertes que des oublis qui couterait beaucoup plus cher. Avec 0.5 on avait plus de 90 % des personnes sans casque qui n'était pas détecté. Un faux négatif risque un accident grave ou mortel, il faut maximiser le rappel. Un faux positif fait simplement sonner une alarme.
+    2. Au seuil 0.10, sur la validation : précision 40%, rappel 91% et sur le test on a précision 23%, rappel 42% donc les métriques ont chutés dans les deux cas. Le modèle a plus de mal sur de nouvelles images. Puisqu'on a 45 objets pour la validation et 40 objets dans le test. On a n=40 pour le test donc pour le rappel on a p=0.42 donc avec le calcul de la racine on a un intervalle de confiance de $\pm15.3$% donc le vrai rappel est entre 27% et 58% la marge d'erreur est trop grande, on accorde donc une faible confiance à ces chiffres, n n'est pas assez grand ici. Pour la précision on a p=0.23 et n = 17+58 = 75 donc on obtient un intervalle de confiance de $\pm9.5$% donc on accorde aussi une faible confiance.
+    3. On voit que le modèle propose parfois plusieurs boites rouges pour une seule tete, c'est compté comme des fausses alertes. On a également des oublis lorsque la personne a la tête un peu incliné vers le bas qui est mal détectée (exemple du garçon devant le piano).
     """)
     return
 
@@ -1179,7 +1194,7 @@ def _(mo):
 @app.cell
 def _(mo):
     mo.md(r"""
-    **Votre réponse :** ...
+    **Votre réponse :** C'est YOLO + SAM qui permet de compter les personnes. La plus rapide est DeepLab (514 ms contre 1823 ms et 749 ms contre 2193ms). On peut utiliser DeepLab pour des tâches à temps réel où il faut juste savoir s'il y'a une présence globale par exemple détecter s'il y'a quelqu'un dans une zone de danger. Et YOLO + SAM dans des cas où on veut précisément le nombre d'ouvriers sur un chantier par exemple.
     """)
     return
 
@@ -1239,14 +1254,14 @@ def _(mo):
     | Rubrique | Votre réponse |
     |---|---|
     | Problème métier | Détecter les personnes sans casque sur un chantier |
-    | Baseline classique et son score (test, classe casque : elle ne détecte pas l'absence de casque) | ... |
-    | Modèle retenu et pourquoi | ... |
-    | Métrique principale et score obtenu (test, classe `no_helmet`, au seuil retenu) | ... |
-    | Seuil retenu et justification métier | ... |
-    | Coût (entraînement, inférence, matériel) ; pour l'inférence, le modèle fourni a la même architecture que le YOLOv8n de l'étape 4 | ... |
-    | Principaux cas d'échec | ... |
-    | Le deep learning est-il justifié ici ? | ... |
-    | Déployable en l'état ? Sinon, que manque-t-il ? | ... |
+    | Baseline classique et son score (test, classe casque : elle ne détecte pas l'absence de casque) | Segmentation couleur (seuil HSV sur le jaune/orange). Ne gère pas `no_helmet`. Score très faible sur le test (F1 < 0.20). |
+    | Modèle retenu et pourquoi | YOLOv8n fine-tuné : léger, rapide, temps réel et robuste aux poses variées contrairement à la couleur. |
+    | Métrique principale et score obtenu (test, classe `no_helmet`, au seuil retenu) | Rappel (pour éviter les oublis critiques). Au seuil 0.10 sur le test : rappel 42 % (17/40) et précision 23 %. |
+    | Seuil retenu et justification métier | Seuil 0.10. Un ouvrier oublié (faux négatif) est dangereux pour la sécurité, alors qu'une fausse alerte coûte peu. On privilégie le rappel. |
+    | Coût (entraînement, inférence, matériel) ; pour l'inférence, le modèle fourni a la même architecture que le YOLOv8n de l'étape 4 | Très faible : inférence en ~30-40 ms sur CPU. Ca pourrait être plus rapide avec un GPU |
+    | Principaux cas d'échec | Doublons de boîtes rouges au seuil bas, têtes inclinées oubliées, et fausses alertes sur objets orange du décor (plots, barrières). |
+    | Le deep learning est-il justifié ici ? | Oui : une approche couleur/contours échoue avec les ombres, les angles et les objets de même couleur. |
+    | Déployable en l'état ? Sinon, que manque-t-il ? | Non. Il manque plus de données d'entraînement pour `no_helmet` (rappel trop faible),il serait trop dangereux de le déployer maintenant. |
     """)
     return
 
