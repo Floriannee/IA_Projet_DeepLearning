@@ -294,7 +294,7 @@ def _(np):
             gagnant = restants.pop(0) 
             gardees.append(gagnant)
             restants = [i for i in restants if iou (boites[gagnant],boites[i]) <= seuil_iou]
-            
+        
         return gardees
 
 
@@ -403,7 +403,7 @@ def _(mo):
 @app.cell
 def _(mo):
     mo.md(r"""
-    **Votre réponse :** ...
+    **Votre réponse :** Non les classes ne sont pas équilibrés, on détecte bien plus les classes positives (humains et les équipements) que quand il n'y en a pas (les classes négatives). Les classes d'absences ("no_*") sont le moins bien détectés et elles ont d'ailleurs des tailles médianes de boites très faible (<2% de la surface), le détecteur a donc du mal a les détecter ses exemples rares et au volume restreint. Ces oublis sont embetants pour un système de sécurité car on ne va pas détecter la non-conformité en cas de danger.
     """)
     return
 
@@ -415,7 +415,7 @@ def _(mo):
 
     YOLOv8n a été pré-entraîné sur COCO, 80 classes d'objets du quotidien (personne, voiture, chien...).
     Que voit-il sur nos images de chantier ? Faites varier le seuil de confiance (0,25 au départ, la valeur par défaut d'Ultralytics), et regardez quelles classes
-    COCO apparaissent : l'une d'elles pourrait-elle servir à repérer un casque ?
+    COCO apparaissent : l'une d'elles pourrait-elle servir à repérer un casque ? Non il détecte que la classe "Person".
     """)
     return
 
@@ -460,6 +460,8 @@ def _(mo):
     On demande à YOLO ses boîtes « personne » de score supérieur à 0,05, avec sa propre NMS presque désactivée
     (seuil 0,99), puis on applique **votre** NMS. Faites varier son seuil : à partir de quand des doublons
     réapparaissent-ils, et quand une vraie personne disparaît-elle ?
+
+    A partir de 0.65, deux boites apparaissent à droite.
     """)
     return
 
@@ -509,15 +511,26 @@ def _(mo):
     return
 
 
-@app.function
-def boites_depuis_masque(masque, aire_min):
-    """Une boîte [x1, y1, x2, y2] par composante connexe d'au moins aire_min pixels."""
-    # TODO 3
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(cv2, np):
+    def boites_depuis_masque(masque, aire_min):
+        """Une boîte [x1, y1, x2, y2] par composante connexe d'au moins aire_min pixels."""
+        # TODO 3
+        n, etiquettes, stats, entres = cv2.connectedComponentsWithStats(masque.astype(np.uint8))
+        boites = []
+        for i in range (1,n):
+            x,y,largeur,hauteur,aire = stats[i]
+            if aire >= aire_min:
+                boites.append([x,y,x+largeur,y+hauteur])
+        return boites
+    
+
+
+    return (boites_depuis_masque,)
 
 
 @app.cell(hide_code=True)
-def _(mo, tests, tp):
+def _(boites_depuis_masque, mo, tests, tp):
     ok_todo3, _affichage = tp.verifier(tests.tests_boites_masque(boites_depuis_masque), mo)
     _affichage
     return (ok_todo3,)
@@ -548,6 +561,29 @@ def _(mo):
 def evaluer_detections(predictions, verites, seuil_iou=0.5):
     """predictions : liste de (boite, score) ; verites : liste de boîtes. Renvoie tp, fp, fn, precision, rappel."""
     # TODO 4
+    predictions.sort(key=lambda x: x[1], reverse=True)
+    tp,fp,fn=0,0,0
+    verites_prises =[]
+
+    for boite_pred,score in predictions:
+        meilleure_iou=0
+        meilleur_id=-1
+        
+        for i in range(len(verites)):
+            if i not in verites_prises:
+                val_iou = iou(boite_pred,verites[i])
+                if val_iou >= meilleure_iou:
+                    meilleure_iou = val_iou
+                    meilleur_id = i
+        if meilleur_id != -1 and meilleure_iou >= seuil_iou:
+            tp+=1
+            verites_prises.append(meilleur_id)
+        else: 
+            fp+=1
+    fn= len(verites)-len(verites_prises)
+    precision = tp/(tp+fp) if tp+fp !=0 else 0
+    rappel = tp/ (tp+fn) if tp +fn !=0 else 0
+    return {"tp":tp,"fp":fp,"fn":fn,"precision":precision,"rappel":rappel}
     raise NotImplementedError("À compléter")
 
 
@@ -593,7 +629,7 @@ def _(images_val, mo):
 
 
 @app.cell
-def _(cv2, hsv_aire, hsv_sat, hsv_teinte, hsv_val, np):
+def _(boites_depuis_masque, cv2, hsv_aire, hsv_sat, hsv_teinte, hsv_val, np):
     def detecter_casques_couleur(image_rgb):
         """Baseline classique : renvoie (masque, liste de (boite, score)) pour une image RGB."""
         _hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
@@ -691,8 +727,8 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
+    1. La baseline fait des faux négatifs avec 178 oublis, elle a du mal à détecter les casques sur l'image exemple, surtout les deux en arrières plans qui onnt des casque trop petits donc le masque couleur ne les détecte même pas. Il y'a aussi 88 fausses allertes elles confonds des objets du chantier qui sont jaune et orange comme des casque, par exemple les poteaux oranges.
+    2. Non cette baseline couleur ne suffit pas, une tête sans casque n'a pas de couleur fixe :ça dépends de la couleur des cheveux de la personne ou le crâne avec plein de couleurs de peaux possibles. Si on commencait à filtrer les couleurs de peaux alors le masque couleur prendrait tout en compte (visage, bras...).
     """)
     return
 
@@ -812,9 +848,10 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
-    3. ...
+    1. Les classes les mieux détectes sont Person (0.887) ,vest (0.846) et helmet(0.812) car ce sont les classes majoritaires d'après les graphiques de l'étape 3.
+    A l'inverse les classes les moins bien detéctés ont très peu d'exemples dans les données, ce sont surtout no_boots (0.021), no_goggle (0.162) and no_gloves (0.171). Il y'a aussi le fait qu'ils sont de petites tailles donc le réseau a du mal a localiser cette petite zone de pixel.
+    2. Le mAP@0.5 demande juste un IoU de 50% alors que le mAP@0.5:0.95 fait la moyenne sur des seuils beaucoup plus strict, jusqu'à 95 % de recouvrement, donc la moyenne baisse. L'écart est très grand sur les petits objets gloves (0.768 -> 0.377) et goggle (0.797 -> 0.349). L'écart est fort car avec l'indice on voit que l'IoU descends en dessous de 0.5 même pour un décalage de seulement 4 pixels pour un petit objet (20x20px). Sur un grand objet (100x100px) un petit décalage a un impact beaucoup moins élevé.
+    3. On a eu 167 secondes pour le fine-tuning court pour 30% des images, 2 époques et une résolution de 320 px. Pour 100% des images, 20 époques et résolution 416 px), on a alors besoin de 167 * 100/30 * 20/2 * (416/320) ** 2  = 9407 secondes soit 2h37.  Il faut des ordinateurs avec des GPU car avec le CPU c'est beaucoup trop long.
     """)
     return
 
@@ -855,6 +892,34 @@ def _(mo):
 def courbe_seuils(predictions_par_image, verites_par_image, seuils):
     """Précision, rappel et F1 cumulés sur toutes les images, pour chaque seuil de confiance."""
     # TODO 5
+
+    liste_seuils=[]
+    liste_precisions=[]
+    liste_rappels=[]
+    liste_f1=[]
+    for seuil in seuils:
+        tp,fp,fn=0,0,0
+
+        for i in range(len(predictions_par_image)):
+    
+            prediction_image=predictions_par_image[i]
+            verite_image=verites_par_image[i]
+            preds=[p for p in prediction_image if p[1] >= seuil]
+
+            
+            res = evaluer_detections(preds,verite_image)
+            tp+=res["tp"]
+            fp+=res["fp"]
+            fn+=res["fn"]
+        precision = tp / (tp + fp) if (tp + fp) != 0 else 0.0
+        rappel = tp / (tp + fn) if (tp + fn) != 0 else 0.0
+        f1=2*precision*rappel/(precision+rappel) if precision + rappel !=0 else 0
+        liste_seuils.append(seuil)
+        liste_precisions.append(precision)
+        liste_rappels.append(rappel)
+        liste_f1.append(f1)
+    return {"seuil": liste_seuils, "precision": liste_precisions, "rappel": liste_rappels, "f1": liste_f1}
+        
     raise NotImplementedError("À compléter")
 
 
@@ -1212,7 +1277,7 @@ def _(mo):
 
 
 @app.cell
-def _(bouton_neu, cv2, mo, np, ok_todo3, ok_todo4, tp):
+def _(boites_depuis_masque, bouton_neu, cv2, mo, np, ok_todo3, ok_todo4, tp):
     tp.bloquer_si(not (ok_todo3 and ok_todo4), mo, "Terminez les TODO 3 et 4 d'abord.")
     mo.stop(not tp.lance(bouton_neu), mo.md("Cliquez pour lancer (plusieurs minutes sur CPU : trois époques de fine-tuning)."))
     _cible = tp.DONNEES / "neu-yolo"
