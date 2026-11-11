@@ -59,7 +59,7 @@ def _(mo):
     Quelle question métier cette brique traite-t-elle ? Quelles données, en quelle quantité, comment
     sont-elles découpées (entraînement, validation, test) ?
 
-    Cette brique permet d'identifier automatiquement le type de défaut parmi 6 catégories de défauts de surface sur des bandes d'acier dans un contexte industriel. On a des images en niveaux de gris, et elles sont séparés en:
+    Cette brique permet d'identifier automatiquement le type de défaut parmi 6 catégories de défauts de surface sur des bandes d'acier dans un contexte industriel. On a le jeu de données NEU-DET avec des images en niveaux de gris, et elles sont séparés en:
 
     Entraînement : 30 images annotées par type (soit 180 images au total), simulant la rareté d'annotation en usine.
 
