@@ -472,7 +472,7 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. Oui la sonde linéaire dépasse le zero shot à partir de 7 exemples annotés par classe. A 20 exemples, elle atteint 0.8 d'accuracy.
+    1. Oui la sonde linéaire dépasse le zero shot à partir de 10 exemples annotés par classe. A 20 exemples, elle atteint 0.8 d'accuracy.
     2. A nombre égal d'exemple, la sonde linéaire est toujours meilleure que la baseline avec environ 0.2 d'accuracy en plus, l'écart reste constant quasiment tout le long, on a des pentes similaires pour les deux.
     3. Le zero  shot est la seule option réaliste dans le cas où il n y a pas d'annotation sur les exemples, quand on commence un projet sans aucune donné étiqueté ou on doit rajouter des classes sans étiquettes. (début de projet, vérifier d'urgence la conformité d'un nouvel équipement)
     """)
@@ -497,15 +497,22 @@ def _(mo):
     return
 
 
-@app.function
-def rechercher(emb_requete, emb_corpus, k=5):
-    """Indices des k éléments du corpus les plus proches de la requête (similarité cosinus décroissante)."""
-    # TODO 3
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(np, similarite_cosinus):
+    def rechercher(emb_requete, emb_corpus, k=5):
+        """Indices des k éléments du corpus les plus proches de la requête (similarité cosinus décroissante)."""
+        # TODO 3[None,:]
+        sim=similarite_cosinus(emb_requete[None,:],emb_corpus)[0]
+        indice = np.argsort(-sim) 
+        return indice[:k]
+    
+        raise NotImplementedError("À compléter")
+
+    return (rechercher,)
 
 
 @app.cell(hide_code=True)
-def _(mo, ok_todo1, tests, tp):
+def _(mo, ok_todo1, rechercher, tests, tp):
     tp.bloquer_si(not ok_todo1, mo, "Terminez le TODO 1 d'abord.")
     ok_todo3, _affichage = tp.verifier(tests.tests_recherche(rechercher), mo)
     _affichage
@@ -545,6 +552,7 @@ def _(
     emb_corpus,
     mo,
     ok_todo3,
+    rechercher,
     requete,
     tp,
 ):
@@ -559,7 +567,7 @@ def _(
 def _(mo):
     mo.md(r"""
     Essayez : `a person without a helmet`, `safety goggles`, `a worker on a roof`, `a group of workers`,
-    `a blue helmet`, `someone holding a tool`. Certaines de ces notions n'ont **jamais été annotées** dans le jeu.
+    `a blue helmet`, `someone holding a tool`. Certaines de ces notions n'ont **jamais été annotées** dans le jeu. Pour la négation "a person without a helmet" il se trompe et renvoie que des gens avec un casque. Pareil pour goggles ils renvoient pas la bonne chose. Et pour la couleur il a confondu en mettant un uniforme bleue. Le reste c'est correct. Mais "someone holding a tool" il a mis deux images où l'ouvrier ne tient rien.
 
     ### À compléter — TODO 4 : mesurer la qualité de la recherche
 
@@ -574,7 +582,12 @@ def _(mo):
 def precision_a_k(indices, pertinents, k):
     """Proportion d'images pertinentes parmi les k premiers résultats."""
     # TODO 4
-    raise NotImplementedError("À compléter")
+    qualite = 0
+    liste = indices[:k]
+    for i in liste:
+        if pertinents[i]==1:
+            qualite+=1
+    return qualite/k
 
 
 @app.cell(hide_code=True)
@@ -593,6 +606,7 @@ def _(
     ok_todo3,
     ok_todo4,
     presence,
+    rechercher,
     tp,
 ):
     tp.bloquer_si(not (ok_todo3 and ok_todo4), mo, "Terminez les TODO 3 et 4 pour évaluer le moteur.")
@@ -643,6 +657,7 @@ def _(
     mo,
     np,
     ok_todo3,
+    rechercher,
     tp,
 ):
     tp.bloquer_si(not ok_todo3, mo, "Terminez le TODO 3 d'abord.")
@@ -670,7 +685,7 @@ def _(mo):
     Laquelle retrouve le *contenu* (ce que font les personnes, ce qu'elles portent) ? Comparez la précision
     des différentes requêtes : lesquelles réussissent, lesquelles échouent, et comment l'expliquez-vous ?
 
-    ...
+    La méthode classique s'appuie uniquement sur la distribution globale des intensités de couleur dans l'image sans notion spatiale donc si des images ont la meme palette de couleur ils seront considérés comme proche même s'il n'y a aucun rapport. CLIP s'appuie sur une réprésentation sémantique, le vision transformer est capable d'extraire la présence d'une personne, d'équipement sur une photo. CLIP retrouve donc le contenu. Si on regarde les requêtes écrites en haut, on voit que CLIP n'a pas de mal pour une personne qui porte un casque ou une veste car CLIP a été pré entrainé dessus, il a un peu plus de mal avec les objets petits (goggles et gloves), ils occupent peu de pixel dans la photo et enfin CLIP échoue totalement pour les phrases avec négation, il ignore le "without" et renvoie des images avec casque il a associé le "helmet" de la phrase à des images contenant des casques.
     """)
     return
 
@@ -708,15 +723,22 @@ def _(mo):
     return
 
 
-@app.function
-def bruiter(x0, t, alphas_cumules, bruit):
-    """Saute directement à l'étape t du bruitage : x_t = racine(ac) x0 + racine(1 - ac) bruit."""
-    # TODO 5
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(torch):
+    def bruiter(x0, t, alphas_cumules, bruit):
+        """Saute directement à l'étape t du bruitage : x_t = racine(ac) x0 + racine(1 - ac) bruit."""
+        # TODO 5
+        ac= alphas_cumules[t]
+        ac=ac.reshape(-1,*[1]*(x0.dim()-1))
+        x_t = torch.sqrt(ac) *x0 + torch.sqrt(1 - ac) *bruit
+        return x_t
+        raise NotImplementedError("À compléter")
+
+    return (bruiter,)
 
 
 @app.cell(hide_code=True)
-def _(mo, tests, tp):
+def _(bruiter, mo, tests, tp):
     ok_todo5, _affichage = tp.verifier(tests.tests_bruiter(bruiter), mo)
     _affichage
     return (ok_todo5,)
@@ -738,7 +760,7 @@ def _(forme_2d, torch, tp):
 
 
 @app.cell
-def _(alphas_cumules, etape_2d, mo, ok_todo5, plt, points, torch, tp):
+def _(alphas_cumules, bruiter, etape_2d, mo, ok_todo5, plt, points, torch, tp):
     tp.bloquer_si(not ok_todo5, mo, "Terminez le TODO 5 pour voir le bruitage.")
     torch.manual_seed(0)
     _xt = bruiter(points, torch.full((len(points),), etape_2d.value), alphas_cumules, torch.randn_like(points))
@@ -793,6 +815,7 @@ def _(
     Debruiteur2D,
     alphas_cumules,
     bouton_2d,
+    bruiter,
     mo,
     ok_todo5,
     plt,
@@ -844,15 +867,23 @@ def _(mo):
     return
 
 
-@app.function
-def etape_debruitage(x_t, t, bruit_predit, betas, alphas, alphas_cumules, z):
-    """Calcule x_(t-1) à partir de x_t et du bruit prédit. z : bruit frais, ignoré quand t == 0."""
-    # TODO 6
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(torch):
+    def etape_debruitage(x_t, t, bruit_predit, betas, alphas, alphas_cumules, z):
+        """Calcule x_(t-1) à partir de x_t et du bruit prédit. z : bruit frais, ignoré quand t == 0."""
+        # TODO 6
+        if t!=0:
+            x_tavant=1/torch.sqrt(alphas[t])*(x_t-(betas[t]*bruit_predit/torch.sqrt(1-alphas_cumules[t]))) + torch.sqrt(betas[t])*z      
+        else:
+            x_tavant= 1/torch.sqrt(alphas[t])*(x_t-(betas[t]*bruit_predit/torch.sqrt(1-alphas_cumules[t]))) 
+        return x_tavant
+
+
+    return (etape_debruitage,)
 
 
 @app.cell(hide_code=True)
-def _(mo, tests, tp):
+def _(etape_debruitage, mo, tests, tp):
     ok_todo6, _affichage = tp.verifier(tests.tests_debruitage(etape_debruitage), mo)
     _affichage
     return (ok_todo6,)
@@ -864,6 +895,7 @@ def _(
     alphas_cumules,
     betas,
     debruiteur_2d,
+    etape_debruitage,
     mo,
     ok_todo6,
     plt,
@@ -904,7 +936,7 @@ def _(mo):
     qui suivent la même forme ? Que se passe-t-il si vous supprimez le bruit frais $z$ dans votre TODO 6
     (essayez, puis remettez-le) ?
 
-    ...
+    Ce sont de nouveaux points qui suivent la même forme et non des copies des points d'entrainement (en soustrayant le bruit pas à pas lors du débruitage). Si on enlève le bruis frais z alors les erreurs s'accumulent, les points seront fixés d'avance car il n'y aura plus de hasard pendant la descente.
     """)
     return
 
@@ -947,6 +979,7 @@ def _(
     alphas_cumules,
     betas,
     bouton_gen,
+    etape_debruitage,
     gen_classe,
     gen_force,
     mo,
@@ -985,7 +1018,9 @@ def _(mo):
     **Votre réponse :** comparez $g = 0$, $g = 2$ et $g = 5$ pour la même classe. Que gagne-t-on et que
     perd-on quand $g$ augmente ? Les 12 images sont-elles identiques ? D'où vient leur diversité ?
 
-    ...
+    Pour g=0, la condition est ignorée et il génère aléatoirement des vêtements différents parmis les 12 images (pull, gilet...) et pas de basket.
+    Pour g=2 et g=5, on a bien des baskets sur les 12 images. Mais pour g=2 on a plus de variété de basket (formes basses, semelles différentes...) Pour g=5 elles sont toutes similaires et on ne voit plus trop le bas des semelles, les contours sont plus pixélisés. On a la condition qui pèse plus pour g=5 donc on dirait qu'il impose la classe et sature un peu les contrastes.
+    Augmenté g améliore donc la fiabilité à la condition mais fait perdre en diversité et qualité de l'image. Les 12 images sont différentes avec le bruit estimé initial ainsi que le bruit frais z injecté à chaque pas de débruitage.
     """)
     return
 
@@ -1022,13 +1057,13 @@ def _(mo):
     | Rubrique | Votre réponse |
     |---|---|
     | Problème métier | Retrouver dans une banque d'images de chantier les situations décrites par un responsable sécurité |
-    | Baseline classique et son score | ... |
-    | Modèle retenu et pourquoi | ... |
-    | Métrique principale et score obtenu | ... |
-    | Coût (annotation, entraînement, inférence, matériel) | ... |
-    | Principaux cas d'échec | ... |
-    | Le foundation model est-il justifié ici ? | ... |
-    | Déployable en l'état ? Sinon, que manque-t-il ? | ... |
+    | Baseline classique et son score | Recherche par mots-clés / tags manuels et score faible sur requêtes atypiques |
+    | Modèle retenu et pourquoi | CLIP (ViT-B/32 en zero-shot) pour son espace latent multimodal texte-image permettant la recherche sémantique ouverte sans réentraînement |
+    | Métrique principale et score obtenu | Précision à 10 (P@10) : 1.0 sur casque et gilet, 0.9 sur lunettes, 0.8 sur gants (nettement au-dessus du hasard ~0.32-0.50) |
+    | Coût (annotation, entraînement, inférence, matériel) | 0 € en annotation et entraînement (zero-shot) ; inférence rapide sur GPU léger (embeddings images précalculés une seule fois) |
+    | Principaux cas d'échec | Échec total sur la négation ("a person without a helmet" avec P@10 = 0.0), petits objets distants et relations spatiales |
+    | Le foundation model est-il justifié ici ? | Oui, il permet une recherche ouverte immédiate sur des concepts variés sans annoter de dataset métier |
+    | Déployable en l'état ? Sinon, que manque-t-il ? | Non, il doit être couplé à un modèle de détection d'objets (ex. YOLOv8) pour repérer localement l'absence d'équipement de protection individuelle (EPI) critiques |
     """)
     return
 
@@ -1051,7 +1086,7 @@ def _(mo):
     et ce qui ne se compare pas. Dans quel cas partiriez-vous d'un foundation model, dans quel cas d'un modèle
     spécialisé ?
 
-    ...
+    YOLO exige beaucoup plus d'images annotés avec des boites et plusieurs heures d'entrainement mais il offre une excellente précision spatiale pour détecter les équipements. CLIP s'utilise immédiatement en zero-shot sans aucune donnée annoté ni temps de calcul préalable avec une bonne catégorisation sémantique sur des images déjà recadrées mais il a du mal avec les détails fins ou la négation (le cas "without helmet"). La comparaison directe est surtout par rapport au coût de mise en oeuvre et l'exactitude de classification d'un objet. On privilégie un foundation model comme CLIP en phase exploratoire et un modèle spécialisé comme YOLO dès qu'une localisation en temps réel est demandée sur des classes fixées comme le controle automatisé de detection d'EPI sur un chantier.
     """)
     return
 
@@ -1091,6 +1126,7 @@ def _(
     np,
     ok_todo3,
     ok_todo4,
+    rechercher,
     tp,
 ):
     tp.bloquer_si(not (ok_todo3 and ok_todo4), mo, "Terminez les TODO 3 et 4 d'abord.")
