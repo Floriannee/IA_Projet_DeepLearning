@@ -72,9 +72,17 @@ def _(mo):
 
 @app.cell
 def _(tp):
+    tp.fixer_graine(0)
+    #Découpage pour le projet
+    parties = tp.decoupage_neu(n_test_par_classe=100, n_val_par_classe=20, graine=0)
+    return
+
+
+@app.cell
+def _(tp):
     # Chargement et découpage des données. Exemple pour les images NEU (voir outils/tp_utils.py) :
-    (images_train, y_train, images_val, y_val, images_test, y_test, noms) = tp.charger_neu(n_train_par_classe=30, n_val_par_classe=20, n_test_par_classe=100)
-    dossier_donnees = tp.DONNEES
+    (images_train, y_train, images_val, y_val, images_test, y_test, noms) = tp.charger_neu(n_train_par_classe=30, n_val_par_classe=20, n_test_par_classe=100, graine=0)
+    #dossier_donnees = tp.DONNEES
     return images_test, images_train, images_val, noms, y_test, y_train, y_val
 
 
@@ -155,7 +163,6 @@ def _(images_test, images_train, images_val, mo, np, y_test, y_train, y_val):
         f"- **Validation** = **{_acc_va:.1%}** (C = {_C_opt})  \n"
         f"- **Test final** = **{score_baseline:.1%}**"
     )
-
     return (
         SVC,
         StandardScaler,
@@ -180,9 +187,6 @@ def _(mo):
 
 @app.cell
 def _(images_test, images_train, images_val, mo, tp, y_test, y_train, y_val):
-    # Votre modèle : remplacez cette ligne par votre code ; réglez-le sur la validation,
-    # puis gardez son score sur le test, mesuré une seule fois.
-
     import numpy as _np
     from PIL import Image as _Image
     from sklearn.linear_model import LogisticRegression as _LogisticRegression
@@ -195,109 +199,142 @@ def _(images_test, images_train, images_val, mo, tp, y_test, y_train, y_val):
         efficientnet_b0 as _b0,
     )
 
-    # 1. Modèle pré-entraîné
-    _poids = _Weights.DEFAULT
-    _transforms = _poids.transforms()
-    _modele = _b0(weights=_poids)
-    _modele.eval()
+    # Nom du cache pour éviter les recalculs longs
+    nom_cache = "brique1_efficientnet_resultats"
+    cache_data = tp.charger_cache(nom_cache)
 
-    _device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
-    _modele = _modele.to(_device)
+    if cache_data is not None:
+        _acc_va_complet = float(cache_data["acc_va_complet"])
+        _acc_va_cs = float(cache_data["acc_va_cs"])
+        score_modele = float(cache_data["score_modele"])
+    
+        _scores_degel = {
+            "0 étage(s) dégelé(s)": float(cache_data["degel_0"]),
+            "1 étage(s) dégelé(s)": float(cache_data["degel_1"]),
+            "2 étage(s) dégelé(s)": float(cache_data["degel_2"]),
+        }
+        _nom_retenu = (
+            "EfficientNet-B0 (features[:6] - intermédiaire CS231n)"
+            if _acc_va_cs > _acc_va_complet
+            else "EfficientNet-B0 (feature extraction couche complète)"
+        )
+    else:
+        # Modèle pré-entraîné
+        _poids = _Weights.DEFAULT
+        _transforms = _poids.transforms()
+        _modele = _b0(weights=_poids)
+        _modele.eval()
 
+        _device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
+        _modele = _modele.to(_device)
 
-    # 2. Fonction d'extraction locale pour représentations statiques
-    def _extraire_rep(_chemins, _extracteur):
-        _feats = []
-        with _torch.no_grad():
-            for _p in _chemins:
-                _im = _Image.open(str(_p)).convert("RGB")
-                _t = _transforms(_im).unsqueeze(0).to(_device)
-                _out = _extracteur(_t)
-                _v = _out.mean(dim=(2, 3)).squeeze().cpu().numpy()
-                _feats.append(_v)
-        return _np.array(_feats)
+        # Fonction d'extraction locale pour représentations statiques
+        def _extraire_rep(_chemins, _extracteur):
+            _feats = []
+            with _torch.no_grad():
+                for _p in _chemins:
+                    _im = _Image.open(str(_p)).convert("RGB")
+                    _t = _transforms(_im).unsqueeze(0).to(_device)
+                    _out = _extracteur(_t)
+                    _v = _out.mean(dim=(2, 3)).squeeze().cpu().numpy()
+                    _feats.append(_v)
+            return _np.array(_feats)
 
+        # A. Dernière couche (features complet)
+        _X_tr_complet = _extraire_rep(images_train, _modele.features)
+        _X_va_complet = _extraire_rep(images_val, _modele.features)
 
-    # A. Dernière couche (features complet)
-    _X_tr_complet = _extraire_rep(images_train, _modele.features)
-    _X_va_complet = _extraire_rep(images_val, _modele.features)
+        _clf_complet = _make_pipeline(
+            _StandardScaler(), _LogisticRegression(max_iter=1000)
+        ).fit(_X_tr_complet, y_train)
+        _acc_va_complet = float(_clf_complet.score(_X_va_complet, y_val))
 
-    _clf_complet = _make_pipeline(
-        _StandardScaler(), _LogisticRegression(max_iter=1000)
-    ).fit(_X_tr_complet, y_train)
-    _acc_va_complet = float(_clf_complet.score(_X_va_complet, y_val))
+        # B. Piste CS231n : couche intermédiaire features[:6]
+        _extracteur_cs = _modele.features[:6]
+        _X_tr_cs = _extraire_rep(images_train, _extracteur_cs)
+        _X_va_cs = _extraire_rep(images_val, _extracteur_cs)
 
-    # B. Piste CS231n : couche intermédiaire features[:6]
-    _extracteur_cs = _modele.features[:6]
-    _X_tr_cs = _extraire_rep(images_train, _extracteur_cs)
-    _X_va_cs = _extraire_rep(images_val, _extracteur_cs)
+        _clf_cs = _make_pipeline(
+            _StandardScaler(), _LogisticRegression(max_iter=1000)
+        ).fit(_X_tr_cs, y_train)
+        _acc_va_cs = float(_clf_cs.score(_X_va_cs, y_val))
 
-    _clf_cs = _make_pipeline(
-        _StandardScaler(), _LogisticRegression(max_iter=1000)
-    ).fit(_X_tr_cs, y_train)
-    _acc_va_cs = float(_clf_cs.score(_X_va_cs, y_val))
+        # C. Dégel d'étages (0, 1, 2)
+        _ds_tr = tp.DatasetImages(images_train, y_train, transform=_transforms)
+        _ds_va = tp.DatasetImages(images_val, y_val, transform=_transforms)
+        _loader_tr = _DataLoader(_ds_tr, batch_size=16, shuffle=True)
+        _loader_va = _DataLoader(_ds_va, batch_size=16, shuffle=False)
 
-    # C. Dégel d'étages (0, 1, 2)
-    _ds_tr = tp.DatasetImages(images_train, y_train, transform=_transforms)
-    _ds_va = tp.DatasetImages(images_val, y_val, transform=_transforms)
-    _loader_tr = _DataLoader(_ds_tr, batch_size=16, shuffle=True)
-    _loader_va = _DataLoader(_ds_va, batch_size=16, shuffle=False)
+        def _evaluer_m(m):
+            m.eval()
+            corr, total = 0, 0
+            with _torch.no_grad():
+                for x, y in _loader_va:
+                    x, y = x.to(_device), y.to(_device)
+                    corr += int((m(x).argmax(1) == y).sum())
+                    total += len(y)
+            return corr / total
 
+        _scores_degel_bruts = {}
+        for _n in [0, 1, 2]:
+            _m = _b0(weights=_poids)
+            _m.classifier[1] = _torch.nn.Linear(_m.classifier[1].in_features, 6)
 
-    def _evaluer_m(m):
-        m.eval()
-        corr, total = 0, 0
-        with _torch.no_grad():
-            for x, y in _loader_va:
-                x, y = x.to(_device), y.to(_device)
-                corr += int((m(x).argmax(1) == y).sum())
-                total += len(y)
-        return corr / total
-
-
-    _scores_degel = {}
-    for _n in [0, 1, 2]:
-        _m = _b0(weights=_poids)
-        _m.classifier[1] = _torch.nn.Linear(_m.classifier[1].in_features, 6)
-
-        for p in _m.features.parameters():
-            p.requires_grad = False
-        for p in _m.classifier.parameters():
-            p.requires_grad = True
-
-        if _n > 0:
-            for p in _m.features[-_n:].parameters():
+            for p in _m.features.parameters():
+                p.requires_grad = False
+            for p in _m.classifier.parameters():
                 p.requires_grad = True
 
-        _m = _m.to(_device)
-        _opt = _torch.optim.AdamW(
-            [p for p in _m.parameters() if p.requires_grad], lr=1e-3
+            if _n > 0:
+                for p in _m.features[-_n:].parameters():
+                    p.requires_grad = True
+
+            _m = _m.to(_device)
+            _opt = _torch.optim.AdamW(
+                [p for p in _m.parameters() if p.requires_grad], lr=1e-3
+            )
+            _critere = _torch.nn.CrossEntropyLoss()
+
+            _m.train()
+            for _ep in range(5):
+                for x, y in _loader_tr:
+                    x, y = x.to(_device), y.to(_device)
+                    _opt.zero_grad()
+                    _critere(_m(x), y).backward()
+                    _opt.step()
+
+            _scores_degel_bruts[_n] = _evaluer_m(_m)
+
+        _scores_degel = {
+            "0 étage(s) dégelé(s)": _scores_degel_bruts[0],
+            "1 étage(s) dégelé(s)": _scores_degel_bruts[1],
+            "2 étage(s) dégelé(s)": _scores_degel_bruts[2],
+        }
+
+        # Sélection du modèle et calcul du test final
+        if _acc_va_cs > _acc_va_complet:
+            _nom_retenu = "EfficientNet-B0 (features[:6] - intermédiaire CS231n)"
+            _X_te = _extraire_rep(images_test, _extracteur_cs)
+            score_modele = float(_clf_cs.score(_X_te, y_test))
+        else:
+            _nom_retenu = "EfficientNet-B0 (feature extraction couche complète)"
+            _X_te = _extraire_rep(images_test, _modele.features)
+            score_modele = float(_clf_complet.score(_X_te, y_test))
+
+        # Sauvegarde exclusive de variables numériques pures (évite l'erreur de pickle)
+        tp.sauver_cache(
+            nom_cache,
+            acc_va_complet=_acc_va_complet,
+            acc_va_cs=_acc_va_cs,
+            score_modele=score_modele,
+            degel_0=_scores_degel["0 étage(s) dégelé(s)"],
+            degel_1=_scores_degel["1 étage(s) dégelé(s)"],
+            degel_2=_scores_degel["2 étage(s) dégelé(s)"],
         )
-        _critere = _torch.nn.CrossEntropyLoss()
-
-        _m.train()
-        for _ep in range(5):
-            for x, y in _loader_tr:
-                x, y = x.to(_device), y.to(_device)
-                _opt.zero_grad()
-                _critere(_m(x), y).backward()
-                _opt.step()
-
-        _scores_degel[f"{_n} étage(s) dégelé(s)"] = _evaluer_m(_m)
 
     _lignes_degel = "\n".join(
         [f"- {_k} : {_v:.1%}" for _k, _v in _scores_degel.items()]
     )
-
-    # Sélection du meilleur modèle sur validation et test final
-    if _acc_va_cs > _acc_va_complet:
-        _nom_retenu = "EfficientNet-B0 (features[:6] - intermédiaire CS231n)"
-        _X_te = _extraire_rep(images_test, _extracteur_cs)
-        score_modele = float(_clf_cs.score(_X_te, y_test))
-    else:
-        _nom_retenu = "EfficientNet-B0 (feature extraction couche complète)"
-        _X_te = _extraire_rep(images_test, _modele.features)
-        score_modele = float(_clf_complet.score(_X_te, y_test))
 
     mo.md(
         f"### Comparaison Deep Learning sur Validation :  \n"
@@ -342,14 +379,12 @@ def _(
     make_pipeline,
     mo,
     noms,
-    np,
     score_baseline,
     score_modele,
     tp,
     y_test,
     y_train,
 ):
-    # Une ligne par méthode, la même métrique pour toutes ; figures, cas d'échec et étude de sensibilité.
     import cv2 as _cv2
     import matplotlib.pyplot as _plt
     import numpy as _np
@@ -361,18 +396,11 @@ def _(
         efficientnet_b0 as _b0,
     )
 
-    tableau_final = [
-        {"méthode": "baseline classique", "score sur le test": score_baseline},
-        {"méthode": "deep learning", "score sur le test": score_modele},
-    ]
-
-    # 1. Modèle et extraction locale
+    # 0. Définition de la fonction d'extraction et du modèle de base
     _poids = _Weights.DEFAULT
     _transforms = _poids.transforms()
     _modele = _b0(weights=_poids).eval()
-    _device = _torch.device("cuda" if _torch.cuda.is_available() else "cpu")
-    _modele = _modele.to(_device)
-
+    _device = _torch.device("cpu")
 
     def _extraire_rep_loc(_chemins, _extracteur):
         _feats = []
@@ -383,22 +411,92 @@ def _(
                 _out = _extracteur(_t)
                 _v = _out.mean(dim=(2, 3)).squeeze().cpu().numpy()
                 _feats.append(_v)
-        return np.array(_feats)
+        return _np.array(_feats)
 
+    # Nom du cache d'évaluation
+    nom_cache_eval = "brique1_evaluation_resultats"
+    cache_eval = tp.charger_cache(nom_cache_eval)
 
-    _rep_tr = _extraire_rep_loc(images_train, _modele.features)
-    _rep_te = _extraire_rep_loc(images_test, _modele.features)
+    if cache_eval is not None:
+        # Récupération depuis le cache (sans conflit de variables globales)
+        _score_baseline = float(cache_eval["score_baseline"])
+        _score_modele = float(cache_eval["score_modele"])
+        _acc_base_list = list(cache_eval["acc_base_list"])
+        _acc_deep_list = list(cache_eval["acc_deep_list"])
+        _tailles = list(cache_eval["tailles"])
+        _indices_erreurs = cache_eval["indices_erreurs"]
+    else:
+        # 1. Modèle et extraction locale (calculs longs exécutés une seule fois)
+        _modele = _modele.to(_torch.device("cuda" if _torch.cuda.is_available() else "cpu"))
 
-    _clf_local = make_pipeline(StandardScaler(), _LogReg(max_iter=1000)).fit(
-        _rep_tr, y_train
-    )
+        _rep_tr = _extraire_rep_loc(images_train, _modele.features)
+        _rep_te = _extraire_rep_loc(images_test, _modele.features)
 
-    # 2. Matrice de confusion sur le test
+        _clf_local = make_pipeline(StandardScaler(), _LogReg(max_iter=1000)).fit(
+            _rep_tr, y_train
+        )
+
+        # 2. Matrice de confusion sur le test
+        _y_pred_te = _clf_local.predict(_rep_te)
+        _y_vrais = _np.asarray(y_test)
+        _indices_erreurs = _np.where(_y_pred_te != _y_vrais)[0]
+
+        # 3. Étude de sensibilité (10, 30, 100 images)
+        _tailles = [10, 30, 100]
+        _acc_base_list = []
+        _acc_deep_list = []
+
+        for _n_tr in _tailles:
+            _tr_x, _tr_y, _va_x, _va_y, _, _, _ = tp.charger_neu(
+                n_train_par_classe=_n_tr, n_val_par_classe=20, n_test_par_classe=100
+            )
+            _f_tr = _np.stack([descripteurs_classiques(im) for im in _tr_x])
+            _f_va = _np.stack([descripteurs_classiques(im) for im in _va_x])
+            _svm = make_pipeline(StandardScaler(), SVC(C=10, kernel="rbf")).fit(
+                _f_tr, _tr_y
+            )
+            _acc_base_list.append(
+                float(_np.mean(_svm.predict(_f_va) == _np.asarray(_va_y)))
+            )
+
+            _r_tr = _extraire_rep_loc(_tr_x, _modele.features)
+            _r_va = _extraire_rep_loc(_va_x, _modele.features)
+            _clf = make_pipeline(StandardScaler(), _LogReg(max_iter=1000)).fit(
+                _r_tr, _tr_y
+            )
+            _acc_deep_list.append(float(_clf.score(_r_va, _va_y)))
+
+        # Récupération sécurisée des scores globaux des cellules précédentes pour la sauvegarde
+        _score_baseline = score_baseline
+        _score_modele = score_modele
+
+        # Sauvegarde dans le cache
+        tp.sauver_cache(
+            nom_cache_eval,
+            score_baseline=_score_baseline,
+            score_modele=_score_modele,
+            acc_base_list=_acc_base_list,
+            acc_deep_list=_acc_deep_list,
+            tailles=_tailles,
+            indices_erreurs=_indices_erreurs
+        )
+
+    # Tableau récapitulatif final
+    tableau_final = [
+        {"méthode": "baseline classique", "score sur le test": _score_baseline},
+        {"méthode": "deep learning", "score sur le test": _score_modele},
+    ]
+
+    # Recalcul rapide pour l'affichage des figures
+    _rep_tr = _extraire_rep_loc(images_train, _modele.features) if '_rep_tr' not in locals() else _rep_tr
+    _rep_te = _extraire_rep_loc(images_test, _modele.features) if '_rep_te' not in locals() else _rep_te
+    _clf_local = make_pipeline(StandardScaler(), _LogReg(max_iter=1000)).fit(_rep_tr, y_train) if '_clf_local' not in locals() else _clf_local
+
     _y_pred_te = _clf_local.predict(_rep_te)
     _y_vrais = _np.asarray(y_test)
     _matrice_test, _fig_matrice = tp.matrice_confusion(_y_vrais, _y_pred_te, noms)
 
-    # 3. Votre fonction Grad-CAM du TD1 (TODO 7)
+    # Fonction Grad-CAM du TD1 (TODO 7)
     def grad_cam(modele, couche, image, classe=None):
         activations = {}
         gradients = {}
@@ -427,8 +525,6 @@ def _(
         carte = (carte - carte.min()) / (carte.max() - carte.min() + 1e-8)
         return carte.detach().cpu().numpy()
 
-
-    _indices_erreurs = _np.where(_y_pred_te != _y_vrais)[0]
     _figs_gradcam = []
 
     for _idx in _indices_erreurs[:2]:
@@ -448,7 +544,6 @@ def _(
         _t_in = _transforms(_im_pil).unsqueeze(0).to(_device)
         _t_in.requires_grad = True
 
-        # Appel direct à votre fonction TODO 7
         _carte_brute = grad_cam(
             _modele, _modele.features[-1], _t_in, classe=int(_y_pred_te[_idx])
         )
@@ -462,31 +557,7 @@ def _(
         _plt.tight_layout()
         _figs_gradcam.append(mo.mpl.interactive(_fig_gc))
 
-    # 4. Étude de sensibilité (10, 30, 100 images)
-    _tailles = [10, 30, 100]
-    _acc_base_list = []
-    _acc_deep_list = []
-
-    for _n_tr in _tailles:
-        _tr_x, _tr_y, _va_x, _va_y, _, _, _ = tp.charger_neu(
-            n_train_par_classe=_n_tr, n_val_par_classe=20, n_test_par_classe=100
-        )
-        _f_tr = _np.stack([descripteurs_classiques(im) for im in _tr_x])
-        _f_va = _np.stack([descripteurs_classiques(im) for im in _va_x])
-        _svm = make_pipeline(StandardScaler(), SVC(C=10, kernel="rbf")).fit(
-            _f_tr, _tr_y
-        )
-        _acc_base_list.append(
-            float(_np.mean(_svm.predict(_f_va) == _np.asarray(_va_y)))
-        )
-
-        _r_tr = _extraire_rep_loc(_tr_x, _modele.features)
-        _r_va = _extraire_rep_loc(_va_x, _modele.features)
-        _clf = make_pipeline(StandardScaler(), _LogReg(max_iter=1000)).fit(
-            _r_tr, _tr_y
-        )
-        _acc_deep_list.append(float(_clf.score(_r_va, _va_y)))
-
+    # Figure de l'étude de sensibilité
     _fig_sens, _ax = _plt.subplots(figsize=(6, 3.5))
     _ax.plot(
         _tailles,
