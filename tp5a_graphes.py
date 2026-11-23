@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.0"
+__generated_with = "0.25.1"
 app = marimo.App(
     width="medium",
     app_title="TD 5a - Graphes et recommandation",
@@ -228,7 +228,8 @@ def _(mo):
     **Votre réponse :** laquelle des deux informations est la plus utile ici, le contenu ou les liens ?
     Reliez-le au pourcentage de citations entre articles du même thème affiché plus haut.
 
-    ...
+    L'information la plus utile est les liens, on a une meilleure accuracy test (0.729) comparé à la méthode qui utilise le contenu.
+    Il y'a écrit que 81% des citations relient deux articles du même thème donc les liens donnent plus d'informations que le contenu ici.
     """)
     return
 
@@ -262,7 +263,18 @@ def _(torch):
     def normaliser_adjacence(A):
         """A : (N, N) à valeurs 0/1. Renvoie D^(-1/2) (A + I) D^(-1/2), sans modifier A."""
         # TODO 1
-        raise NotImplementedError("À compléter")
+   
+        degres=[0]*len(A)
+        A = A + torch.eye(len(A))
+        degres=A.sum(dim=1)
+        for i in range(len(A)):
+            for j in range(len(A)):
+                racine= torch.sqrt(degres[i]*degres[j])
+                A[i][j]=A[i][j]/racine
+        return A
+
+
+
     return (normaliser_adjacence,)
 
 
@@ -294,7 +306,11 @@ def _(nn):
         def forward(self, x, A_norm):  # x : (N, entree), A_norm : (N, N)
             """Chaque nœud transforme ses caractéristiques, puis agrège celles de ses voisins."""
             # TODO 2
-            raise NotImplementedError("À compléter")
+        
+            return A_norm @ self.lineaire(x)
+    
+        
+
     return (CoucheGCN,)
 
 
@@ -512,17 +528,15 @@ def _(mo):
     return
 
 
-@app.cell
-def _(np):
-    def recommander(embeddings, noeud, k, deja_lies):
-        """Indices des k nœuds les plus similaires à `noeud`, hors lui-même et hors `deja_lies`."""
-        # TODO 3
-        raise NotImplementedError("À compléter")
-    return (recommander,)
+@app.function
+def recommander(embeddings, noeud, k, deja_lies):
+    """Indices des k nœuds les plus similaires à `noeud`, hors lui-même et hors `deja_lies`."""
+    # TODO 3
+    raise NotImplementedError("À compléter")
 
 
 @app.cell(hide_code=True)
-def _(mo, recommander, tests, tp):
+def _(mo, tests, tp):
     ok_todo3, _affichage = tp.verifier(tests.tests_recommandation(recommander), mo)
     _affichage
     return (ok_todo3,)
@@ -546,7 +560,6 @@ def _(
     ok_todo1,
     ok_todo2,
     ok_todo3,
-    recommander,
     torch,
     tp,
 ):
