@@ -264,15 +264,10 @@ def _(torch):
         """A : (N, N) à valeurs 0/1. Renvoie D^(-1/2) (A + I) D^(-1/2), sans modifier A."""
         # TODO 1
    
-        degres=[0]*len(A)
-        A = A + torch.eye(len(A))
-        degres=A.sum(dim=1)
-        for i in range(len(A)):
-            for j in range(len(A)):
-                racine= torch.sqrt(degres[i]*degres[j])
-                A[i][j]=A[i][j]/racine
-        return A
-
+        A_tilde = A + torch.eye(len(A))
+        degres=A_tilde.sum(dim=1)
+        racine_d = degres.sqrt()
+        return A_tilde / (racine_d[:, None] * racine_d[None, :])
 
 
     return (normaliser_adjacence,)
@@ -306,10 +301,10 @@ def _(nn):
         def forward(self, x, A_norm):  # x : (N, entree), A_norm : (N, N)
             """Chaque nœud transforme ses caractéristiques, puis agrège celles de ses voisins."""
             # TODO 2
-        
+
             return A_norm @ self.lineaire(x)
-    
-        
+
+
 
     return (CoucheGCN,)
 
@@ -411,8 +406,9 @@ def _(
     tp.bloquer_si(not (ok_todo1 and ok_todo2), mo, "Terminez les TODO 1 et 2 pour débloquer l'entraînement.")
     A_norm = normaliser_adjacence(cora["A"])
     _cache = tp.charger_cache("tp5_comparaison")
+
     mo.stop(not (tp.lance(bouton_comparaison) or _cache is not None), mo.md("Cliquez sur le bouton pour lancer."))
-    if tp.lance(bouton_comparaison):
+    if tp.lance(bouton_comparaison) and _cache is not None:
         _acc, _duree = {}, {}
         for _nom, _classe in mo.status.progress_bar([("MLP", MLP), ("GCN", GCN), ("GAT", GAT)], title="Entraînement des trois modèles"):
             _essais = [tp.entrainer_noeuds(_classe(), cora["X"], A_norm, cora["y"], cora["train"], cora["val"], cora["test"], graine=g)
@@ -490,9 +486,9 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. ...
-    2. ...
-    3. ...
+    1. On gagne en accuracy, on passe de 0.729 avec propagation d'étiquette seule à 0.817 avec le CGN et 0.814 avec le GAT.
+    2. Non car GAT obtient presque la même accuracy que le GCN car les articles du graphes qui se citent appartient souvent au meme domaine et ont des voisins pertinents. L'attention serait plus utile dans un graphe où des noeuds connectés ont des liens peu pertinent par exemple un réseau social.
+    3. CGN a 2 couches est le meilleur = 0.81, une couche donne 0.68 et elle baisse encore plus pour 4 couches (0.64) et 8 couches (0.32). Pour une couche, il ne regarde que les voisins de distance 1 donc il capture mal le voisinage plus large du graphe. Pour les couches 4 et 8 on il subit du surlissage en mélangeant les informations de trop de voisins. Il faudrait relancer avec d'autres graines pour être sur.
     """)
     return
 
@@ -532,6 +528,7 @@ def _(mo):
 def recommander(embeddings, noeud, k, deja_lies):
     """Indices des k nœuds les plus similaires à `noeud`, hors lui-même et hors `deja_lies`."""
     # TODO 3
+    
     raise NotImplementedError("À compléter")
 
 
