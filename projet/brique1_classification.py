@@ -31,7 +31,7 @@ def _(mo):
     mo.md(r"""
     # Projet Usine 4.0 — Brique 1 : Classification
 
-    **Groupe :** ... · **Membres :** ...
+    **Groupe :** B · **Membres :** Loric HAGARD, Florianne PAN, Abdellah DJEDIDI, Junjie (Eric) SHAO
 
     **Mode d'emploi de ce modèle**
 
@@ -207,7 +207,7 @@ def _(images_test, images_train, images_val, mo, tp, y_test, y_train, y_val):
         _acc_va_complet = float(cache_data["acc_va_complet"])
         _acc_va_cs = float(cache_data["acc_va_cs"])
         score_modele = float(cache_data["score_modele"])
-    
+
         _scores_degel = {
             "0 étage(s) dégelé(s)": float(cache_data["degel_0"]),
             "1 étage(s) dégelé(s)": float(cache_data["degel_1"]),
