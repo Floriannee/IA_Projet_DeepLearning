@@ -29,9 +29,9 @@ def _():
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    # Projet Usine 4.0 — Brique ... : titre de la brique
+    # Projet Usine 4.0 — Brique 2 : Localisation
 
-    **Groupe :** ... · **Membres :** ...
+    **Groupe :** B · **Membres :** Loric HAGARD, Abdellah DJEDIDI, Florianne PAN, Junjie (Eric) SHAO
 
     **Mode d'emploi de ce modèle**
 
@@ -259,13 +259,11 @@ def _(compter, config_neu, f1, garder, images_test, images_val, mo, np, tp):
     map50_yolo = round(float(res_yolo_test.box.map50), 3)
 
     mo.md(f"""
-    **YOLOv8n (20 époques, 320 px)** :
+    **YOLOv8n (30 époques, 320 px)** :
     - Seuil optimal (choisi sur val) : **`{seuil_opt:.2f}`**
     - Test ({len(images_test)} images) : Précision **{prec_yolo:.1%}** | Rappel **{rap_yolo:.1%}** | **F1 (`score_modele`) : `{score_modele}`** | mAP@0.5 : **`{map50_yolo}`**
     - mAP@0.5 par classe : `{map_par_classe}`
     """)
-
-
     return modele_yolo, score_modele, seuil_opt
 
 
@@ -294,7 +292,7 @@ def _(images_test, mo, modele_yolo, np, seuil_opt, tp):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    C'est quand même mieux qu'à la fin du TP2 où on a une précision de 66.2% et un rappel de 65.2% pour le modèle YOLO avec seulement 3 époques.
+    C'est quand même mieux qu'à la fin du TP2 où on a une précision de 66.2% et un rappel de 65.2% pour le modèle YOLO avec seulement 3 époques. On monte a une précision de 72%, un rappel de 78.5% et un f1 de 0.753 avec 30 époques.
     """)
     return
 
@@ -330,15 +328,15 @@ def _(mo):
 
     | Rubrique | Votre réponse |
     |---|---|
-    | Problème métier | ... |
-    | Baseline classique et son score | ... |
-    | Modèle retenu et pourquoi | ... |
-    | Métrique principale et score obtenu | ... |
-    | Seuil ou réglage retenu, justification métier | ... |
+    | Problème métier | Pouvoir localiser des défauts sur des pièces d'usine |
+    | Baseline classique et son score | écart au fond local, score: F1 = 0.394 |
+    | Modèle retenu et pourquoi | Yolo8 fentrainné sur 30 époques très bon pour localiser des objets sur une image, ici les défauts des pièces |
+    | Métrique principale et score obtenu | métrique principale : f1 score = 0.753 |
+    | Seuil ou réglage retenu, justification métier | seuil choisi : 0.25 ce seuil permet de conserver une bonne précison et un bon rappel et ainsi conserver un bon équilibre entre le coût lorsque la machine ne localise pas correctement un défaut et le coût humain lorsque la machine détecte un défaut qui n'est pas réellement présent. |
     | Coût (annotation, entraînement, inférence, matériel) | ... |
-    | Principaux cas d'échec | ... |
-    | Le deep learning est-il justifié ici ? | ... |
-    | Déployable en l'état ? Sinon, que manque-t-il ? | ... |
+    | Principaux cas d'échec | Les défauts diffus (crazing,pitted_surface) |
+    | Le deep learning est-il justifié ici ? | Ici le deep learning est justifié car son score est bien supérieur à celui de la baseline |
+    | Déployable en l'état ? Sinon, que manque-t-il ? | Non le modèle mériterait un meilleur entraînement notamment pour les défauts diffus qu'il a encore du mal à repérer |
     """)
     return
 
