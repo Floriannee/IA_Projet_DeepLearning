@@ -512,7 +512,7 @@ def _(mo):
     | ses mots **propagés** deux fois, $\hat{A} \hat{A} X$ : l'agrégation d'un GCN à 2 couches, sans aucun poids | le contenu et les liens | aucun |
     | la couche cachée d'un GCN entraîné à classer les thèmes (étape 4) | le contenu et les liens | 140 étiquettes de thème |
 
-    Les deux premiers sont les méthodes classiques. Avant de lancer, notez votre pronostic : lequel sera le meilleur ?
+    Les deux premiers sont les méthodes classiques. Avant de lancer, notez votre pronostic : lequel sera le meilleur ? ses mots propagées deux fois ou le GCN car ils ont le contenu et les liens.
 
     ### À compléter — TODO 3 : recommander
 
@@ -524,16 +524,22 @@ def _(mo):
     return
 
 
-@app.function
-def recommander(embeddings, noeud, k, deja_lies):
-    """Indices des k nœuds les plus similaires à `noeud`, hors lui-même et hors `deja_lies`."""
-    # TODO 3
-    
-    raise NotImplementedError("À compléter")
+@app.cell
+def _(np):
+    def recommander(embeddings, noeud, k, deja_lies):
+        """Indices des k nœuds les plus similaires à `noeud`, hors lui-même et hors `deja_lies`."""
+        # TODO 3
+        emb_norm = embeddings / (np.linalg.norm(embeddings, axis=1, keepdims=True))
+        scores = emb_norm @ emb_norm[noeud]
+        scores[list(deja_lies)] = -np.inf
+        scores[noeud] = -np.inf
+        return np.argsort(scores)[::-1][:k]
+
+    return (recommander,)
 
 
 @app.cell(hide_code=True)
-def _(mo, tests, tp):
+def _(mo, recommander, tests, tp):
     ok_todo3, _affichage = tp.verifier(tests.tests_recommandation(recommander), mo)
     _affichage
     return (ok_todo3,)
@@ -557,6 +563,7 @@ def _(
     ok_todo1,
     ok_todo2,
     ok_todo3,
+    recommander,
     torch,
     tp,
 ):
@@ -602,7 +609,10 @@ def _(mo):
     3. Transposez à un site de commerce en ligne : que seraient les nœuds, les arêtes, les caractéristiques, et
        qu'est-ce qu'une « citation cachée » ?
 
-    ...
+    C'est l'embedding des mots propagés deux fois qui gagne avec 52,4% de citations retrouvés. Non il a pas eu besoin d'entrainement.
+    Non le GCN est mal classé, seulement 16.8%. Pour le thème il avait juste besoin de regrouper les articles d'une meme catégories ensemble et efface leur détails précis qui sont necessaires pour distinguer deux articles.
+
+    Pour un site en ligne on pourrait dire que les noeuds sont les produits, les arêtes les achats de deux produits ensemble par un utilisateur, caractérisques les informations du produits (nom,marque,prix) et citation cachée sera un futur achat du client, on le masque et on regarde si le système arrive a le recommander au client.
     """)
     return
 
@@ -634,11 +644,11 @@ def _(mo):
     mo.md(r"""
     | Rubrique | Classer des articles avec 140 étiquettes | Recommander des citations |
     |---|---|---|
-    | Baselines classiques et leurs scores | ... | ... |
-    | Méthode retenue et pourquoi | ... | ... |
-    | Score obtenu | ... | ... |
-    | Le deep learning est-il justifié ? | ... | ... |
-    | Limite principale pour un graphe industriel (millions de nœuds, nouveaux nœuds chaque jour) | ... | ... |
+    | Baselines classiques et leurs scores | Régression logistique (mots seuls: 59,2%) et propagation d'étiquettes (liens seuls:72,9%) | Mots seuls (contenu : 25,4%) et lignes de la matrice d'adjacence (liens seuls:40%) |
+    | Méthode retenue et pourquoi | GCN à 2 couches : combine les mots des articles et leurs liens sur 2 sauts | Mots propagés deux fois: combine contenu et voisins à 2 sauts tout en gardant les détails précis des mots |
+    | Score obtenu | 81% d'accuracy | 52,4% de citations cachées retrouvées dans les 20 premières suggestions |
+    | Le deep learning est-il justifié ? | Oui bien meilleure que les méthodes classiques  | Non car notre 52,4% sans entrainement est bien mieux que les 16,8% obtenue avec le GCN entrainé. |
+    | Limite principale pour un graphe industriel (millions de nœuds, nouveaux nœuds chaque jour) | Ne sait pas gérer de nouveaux noeuds sans tout ré-entrainer donc compliqué pour un millions de noeuds. | Problème de mémoire et calcul sur un graphe géant. |
 
     ### Pour aller plus loin (si vous avez terminé)
 

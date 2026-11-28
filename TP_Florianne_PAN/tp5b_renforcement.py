@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.25.0"
+__generated_with = "0.25.1"
 app = marimo.App(
     width="medium",
     app_title="TD 5b - Apprentissage par renforcement",
@@ -147,9 +147,9 @@ def _(mo):
     return
 
 
-@app.cell
-def _(mo, tp):
-    _env = tp.creer_cartpole()
+app._unparsable_cell(
+    r"""
+    ;_env = tp.creer_cartpole()
     _obs, _ = _env.reset(seed=0)
     _lignes = [{"pas": 0, "action": "", "position": f"{_obs[0]:+.3f}", "vitesse": f"{_obs[1]:+.3f}",
                 "angle (rad)": f"{_obs[2]:+.3f}", "vitesse angulaire": f"{_obs[3]:+.3f}", "récompense": "", "terminé": ""}]
@@ -162,7 +162,9 @@ def _(mo, tp):
         if _termine:
             break
     tp.tableau(_lignes, mo)
-    return
+    """,
+    name="_"
+)
 
 
 @app.cell(hide_code=True)
@@ -240,7 +242,7 @@ def _(mo):
     **Votre réponse :** à partir de quelle valeur de `k` la règle atteint-elle le score maximal ? Qu'a-t-il fallu
     **savoir** sur le problème pour écrire cette règle ? Gardez votre réponse en tête : elle servira à l'étape 7.
 
-    ...
+    Entre k= 0.05 jusqu'à 0.65, la règle atteint le score maximal de 500. On a eu besoin de l'angle et vitesse_angulaire du mat.
     """)
     return
 
@@ -296,7 +298,13 @@ def _(np):
     def choisir_action(q_valeurs, epsilon, rng):
         """Politique epsilon-gloutonne. Renvoie le numéro (int) de l'action choisie."""
         # TODO 1
-        raise NotImplementedError("À compléter")
+        if rng.random() < epsilon:
+            valeur= rng.integers(len(q_valeurs))
+        else:
+            valeur=np.argmax(q_valeurs)
+        return int(valeur)
+   
+
     return (choisir_action,)
 
 
@@ -334,7 +342,12 @@ def _(np):
     def mise_a_jour_q(Q, etat, action, recompense, etat_suivant, termine, alpha, gamma):
         """Applique une étape de Q-learning à la table Q (modifiée sur place)."""
         # TODO 2
-        raise NotImplementedError("À compléter")
+        if termine:
+           cible = recompense
+        else:
+           cible = recompense + gamma* np.max(Q[etat_suivant])
+        Q[etat][action]= Q[etat][action]+alpha*(cible - Q[etat][action] )
+
     return (mise_a_jour_q,)
 
 
@@ -483,12 +496,11 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :**
 
-    1. Sans rien connaître de la physique, la table fait-elle mieux que le hasard ? Mieux que la règle écrite à la main ?
-    2. Les trois essais ne diffèrent que par leurs tirages aléatoires. Que pensez-vous de l'écart entre leurs scores ?
+    1. Sans rien connaître de la physique, la table fait-elle mieux que le hasard ? Mieux que la règle écrite à la main ? Oui la table atteint entre 127 à 173 points et seulement 22 avec le hasard. Mais elle reste moins bien que la règle écrite à la main avec laquelle on avait un score de 500.
+    2. Les trois essais ne diffèrent que par leurs tirages aléatoires. Que pensez-vous de l'écart entre leurs scores ?  On a un écart de 46 points entre le moins bon et le meilleur essai. Le hasard est donc sensible à la graine aléatoire.
     3. Avec ce découpage, la table a 2 304 états. Combien en aurait-elle si l'état comptait 20 nombres découpés
        chacun en 8 intervalles ? Et si l'état était une image ? Concluez sur la limite de l'approche.
-
-    ...
+    On aurait $8^{20}$ états soit plus d'un milliards de cases. On a des dimensions trop grande et ça devient impossible à stocker.
     """)
     return
 
@@ -561,7 +573,8 @@ def _(mo):
 def cibles_dqn(recompenses, q_suivants, termines, gamma):
     """Cibles de régression de DQN, une par transition, sans gradient."""
     # TODO 3
-    raise NotImplementedError("À compléter")
+    tenseur = recompenses + gamma*(1-termines)* q_suivants.max(dim=1).values
+    return tenseur.detach()
 
 
 @app.cell(hide_code=True)
@@ -705,13 +718,22 @@ def _(mo):
 
     1. Les courbes montent-elles régulièrement, comme la courbe d'un entraînement supervisé ? Décrivez ce que vous
        voyez, essai par essai.
+
+       Régularité des courbes : Non, ça ne monte pas régulièrement comme en supervisé, c'est très instable :
+    Essai 1 (bleu) : Il monte à 500 vers 17 500 pas, s'effondre à ~170 à 20 000 pas, remonte à 500 entre 22 500 et 27 500 pas, puis rechute à ~165 à la fin.
+    Essai 2 (orange) : Il stagne tout le long entre 80 et 190 sans jamais décoller.
+    Essai 3 (vert) : Il stagne autour de 115-125 jusqu'à 25 000 pas, puis monte d'un coup à 500 à la fin.
+
     2. Lisez sur les courbes le score qu'aurait eu chaque essai si on l'avait arrêté à 20 000 pas, puis à
        25 000 pas. Pourquoi conserve-t-on le meilleur réseau évalué plutôt que le dernier ? Et pourquoi le
        tableau mesure-t-il les scores sur d'autres épisodes que ceux qui ont servi à choisir ce réseau ?
+
+       À 20 000 pas : Essai 1 $\approx$ 170, Essai 2 $\approx$ 120, Essai 3 $\approx$ 115.À 25 000 pas : Essai 1 = 500, Essai 2 $\approx$ 145, Essai 3 $\approx$ 125.  On garde le meilleur réseau car il peut oublier ce qu'il a appris en s'entrainant.
+
     3. Si vous n'aviez lancé qu'un seul essai, qu'auriez-vous conclu ? Que faut-il exiger d'un résultat publié
        en apprentissage par renforcement ?
 
-    ...
+    Avec un seul tirage on aurait pas pu bien conclure puisque par exemple avec l'échec 2 c'est un échec et avec le 3e il réussit. Il faut toujours lancer plusieurs graines aléatoires et avoir plusieurs résultats plutot qu'un seul résultat.
     """)
     return
 
@@ -870,11 +892,21 @@ def _(mo):
 
     1. Classez les méthodes selon trois critères : score final, régularité d'un essai à l'autre, nombre
        d'interactions nécessaires.
+
+       Score final : Règle avec anticipation (500) > PPO (496) > DQN meilleur (400) > DQN dernier (285) > Q-learning (145) > Règle simple (44) > Hasard (22).
+       Régularité : Règles fixes / Hasard (constants) > PPO (très stable, 487 à 500) > Q-learning (127 à 173) > DQN (très instable, 199 à 500).
+
+       Interactions : Hasard et règles (0) < DQN et PPO (30 000) < Q-learning (60 000).
+
     2. Regardez les deux animations : les agents tiennent-ils le mât de la même façon ? Le chariot reste-t-il au
        centre du rail ? La récompense demandait-elle qu'il y reste ?
+
+      Ils ont quasiment la meme façon de le tenir. Le chariot ne reste pas au centre, car la récompense donne juste +1 par pas tant que le mât ne tombe pas et rester au centre n'était pas demandé.
+
+
     3. Une des lignes du tableau n'a demandé aucune interaction et aucun entraînement. Pourquoi ne s'en
        contente-t-on pas toujours ?
-
+    La règle avec anticipation (meilleure score sans interaction et entrainement) demande de connaître la physique du problème et de régler $k$ à la main. C'est compliquée à coder sur des problèmes complexes il vaut mieux utiliser le reinforcement learning apprenne seul avec les récompenses.
     ...
     """)
     return
@@ -966,7 +998,7 @@ def _(mo):
     mo.md(r"""
     **Votre réponse :** proposez une modification de la récompense de MountainCar qui aiderait l'agent
     (indice : que sait la règle d'une ligne ?). Quel risque prend-on quand on modifie la récompense pour
-    guider l'agent ?
+    guider l'agent ? Un bonus sur la vitesse pour qu'il prenne de l'élan et continue dans le bon sens. On pourrait avoir le risque d'aller retour pour accumuler les bonus sans jamais arriver au sommet à atteindre.
 
     ...
     """)
@@ -987,12 +1019,12 @@ def _(mo):
     | Rubrique | Votre réponse |
     |---|---|
     | Problème | Maintenir un système en équilibre par une suite de décisions |
-    | Baselines sans apprentissage et leurs scores | ... |
-    | Baseline classique (table) et son score | ... |
-    | Méthode profonde retenue et pourquoi | ... |
-    | Régularité d'un essai à l'autre | ... |
-    | Le deep learning est-il justifié sur CartPole ? | ... |
-    | Dans quelle situation le serait-il clairement ? | ... |
+    | Baselines sans apprentissage et leurs scores | Hasard (score : 22), règle simple « pousser du côté où le mât penche » (score : 44), règle avec anticipation (score : 500) |
+    | Baseline classique (table) et son score | Q-learning tabulaire score de 134, 127, 173 selon l'essai. |
+    | Méthode profonde retenue et pourquoi | PPO, car il atteint un score quasi maximal (496 en moyenne) en 30 000 interactions, tout en étant beaucoup plus stable et plus rapide à entraîner (98s contre 162s) que DQN |
+    | Régularité d'un essai à l'autre | Très bonne pour PPO (scores entre 487 et 500 sur les 3 essais), correcte pour le Q-learning tabulaire (127 à 173), mais très instable pour DQN (199 à 500 même en gardant le meilleur réseau) |
+    | Le deep learning est-il justifié sur CartPole ? | Non, la règle avec anticipation donne déjà le score maximal de 500 sans aucun entraînement, l'état est fait que de 4 nombres. |
+    | Dans quelle situation le serait-il clairement ? | Quand l'état est fait d'une quantité immense de nombres rendant une table impossible en mémoire. |
     | Trois questions à poser avant de proposer du renforcement à un client | ... |
 
     ### Bilan de la journée
