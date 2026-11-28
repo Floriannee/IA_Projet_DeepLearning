@@ -1,6 +1,7 @@
 donnees/
 cache/
-sorties/
+sorties/yolo/neu_projet/args.yaml
+sorties/yolo/neu_projet/results.csv
 modeles/*
 !modeles/tp2_*.pt
 !modeles/tp4_*.pt
